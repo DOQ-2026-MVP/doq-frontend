@@ -1,77 +1,87 @@
-# React + TypeScript + Vite
+# DOQ Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React + Vite 기반 프론트엔드 서비스.
 
-Currently, two official plugins are available:
+## 요구 사항
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- Node.js 22 이상
+- npm (Node.js 포함)
 
-## React Compiler
+## 패키지 설치
 
-The React Compiler is enabled on this template. See [this documentation](https://react.dev/learn/react-compiler) for more information.
-
-Note: This will impact Vite dev & build performances.
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```bash
+npm install
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## 실행
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+```bash
+npm run dev
+```
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+기본적으로 Vite 개발 서버가 실행됩니다.
+
+- 기본 주소: `http://localhost:5173`
+
+## 빌드
+
+```bash
+npm run build
+```
+
+- TypeScript 타입 검사를 수행한 후 프로덕션 번들을 생성합니다.
+- 결과물은 `dist/` 디렉터리에 생성됩니다.
+
+## 미리보기
+
+```bash
+npm run preview
+```
+
+빌드된 결과물을 로컬에서 확인할 수 있습니다.
+
+## 코드 검사
+
+```bash
+npm run lint
+```
+
+- ESLint를 이용한 코드 스타일 및 오류 검사
+
+## 프로젝트 구조
 
 ```
+src/
+├── app/        # 앱 초기화
+├── assets/     # 정적 리소스
+├── entities/   # 도메인 엔티티
+├── features/   # 기능 단위 모듈
+├── pages/      # 페이지 컴포넌트
+└── shared/     # 공통 컴포넌트 및 유틸
+```
+
+## Path Alias
+
+| Alias       | 경로            |
+| ----------- | --------------- |
+| `@`         | `src/`          |
+| `@app`      | `src/app`       |
+| `@assets`   | `src/assets`    |
+| `@entities` | `src/entities`  |
+| `@features` | `src/features`  |
+| `@pages`    | `src/pages`     |
+| `@shared`   | `src/shared`    |
+| `@package`  | `../../package` |
+
+## 기술 스택
+
+| 항목            | 버전             |
+| --------------- | ---------------- |
+| Language        | TypeScript 6     |
+| Framework       | React 19         |
+| Build Tool      | Vite 8           |
+| Styling         | Tailwind CSS 4   |
+| Routing         | React Router 7   |
+| Data Fetching   | TanStack Query 5 |
+| Lint            | ESLint 10        |
+| Package Manager | npm              |
