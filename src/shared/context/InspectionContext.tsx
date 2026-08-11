@@ -196,7 +196,8 @@ export function InspectionProvider({ children }: { children: React.ReactNode }) 
     }, [])
 
     const resolveRecord = useCallback(
-        (recordId: string, status: Extract<RecordStatus, "CONFIRMED" | "REJECTED">, memo: string) => {
+        // TODO: memo 를 changelog 에 기록 — ChangelogEntry 에 필드 추가 후 밑줄 제거
+        (recordId: string, status: Extract<RecordStatus, "CONFIRMED" | "REJECTED">, _memo: string) => {
             setRecords((prev) =>
                 prev.map((record) => {
                     if (record.recordId !== recordId) return record
