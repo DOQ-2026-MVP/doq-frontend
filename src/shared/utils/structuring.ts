@@ -1,13 +1,13 @@
 import type { RawRecordInput, RawRecord, ExceptionFlag, InspectionValues, InspectionRecord } from "../model/inspection"
 
-const KNOWN_UNITS = ["EA", "BOX", "SET", "ROLL", "TON", "SHT", "KG", "M"]
+const KNOWN_UNITS = ["PK", "BOX", "PO", "EA", "SET", "KG", "G", "L"]
 
 const UNIT_MAP: Record<string, string> = {
+    박스: "BOX",
+    팩: "PK",
+    포: "PO",
     개: "EA",
-    장: "SHT",
-    롤: "ROLL",
     세트: "SET",
-    톤: "TON",
 }
 
 export function toRawRecords(inputs: RawRecordInput[], startRowNo: number, idPrefix: string): RawRecord[] {
@@ -88,6 +88,13 @@ function toCurrent(record: RawRecord, observed: InspectionValues): InspectionVal
     }
 }
 
+export function initialStatus(flags: ExceptionFlag[]): InspectionRecord["status"] {
+    if (flags.length === 0) return "APPROVABLE"
+    if (flags.includes("MISSING_REQUIRED")) return "NEEDS_CHECK"
+    if (flags.includes("DUPLICATE_SUSPECT")) return "NEEDS_HOLD"
+    return "NEW"
+}
+
 export function buildInspectionRecords(
     ingestionId: string,
     inspectionId: string,
@@ -95,6 +102,7 @@ export function buildInspectionRecords(
 ): InspectionRecord[] {
     return records.map((record) => {
         const observed = toObserved(record)
+        const flags = detectFlags(record, records)
         return {
             recordId: inspectionId + "-R" + record.rowNo,
             inspectionId,
@@ -102,10 +110,11 @@ export function buildInspectionRecords(
             rowNo: record.rowNo,
             uploadMethod: record.uploadMethod,
             uploadRowNo: record.uploadRowNo,
+            fileName: record.fileName,
             observed,
             current: toCurrent(record, observed),
-            status: "NEW",
-            flags: detectFlags(record, records),
+            status: initialStatus(flags),
+            flags,
             changelog: [],
         }
     })
