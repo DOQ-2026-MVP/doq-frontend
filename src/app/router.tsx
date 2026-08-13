@@ -1,10 +1,9 @@
 import RootRedirect from "../shared/lib/RootRedirect"
 import { createBrowserRouter } from "react-router-dom"
-import { ExportPage } from "@/pages/export/ExportPage"
-import { InboxPage } from "@/pages/inbox/InboxPage"
-import { IngestionDetailPage } from "@/pages/ingestionDetail/IngestionDetailPage"
-import { InspectionDetailPage } from "@/pages/inspectionDetail/InspectionDetailPage"
-import { IntakePage } from "@/pages/intake/IntakePage"
+import { ExportPage } from "@/pages/ExportPage"
+import { InboxPage } from "@/pages/InboxPage"
+import { InspectionDetailPage } from "@/pages/InspectionDetailPage"
+import { IntakePage } from "@/pages/IntakePage"
 import { Layout } from "@/widget/Layout"
 
 export const router = createBrowserRouter(
@@ -19,10 +18,6 @@ export const router = createBrowserRouter(
                 {
                     path: "/intake",
                     element: <IntakePage />,
-                },
-                {
-                    path: "/ingestion/:ingestionId",
-                    element: <IngestionDetailPage />,
                 },
                 {
                     path: "/inbox",
