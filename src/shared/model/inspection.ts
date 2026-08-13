@@ -1,10 +1,10 @@
-export type SourceType = "XLSX" | "CSV" | "MANUAL"
+export type SourceType = "XLSX" | "CSV" | "PDF" | "IMAGE" | "MANUAL"
 
 export type UploadMethod = "FILE" | "MANUAL"
 
 export type IngestionStatus = "DRAFT" | "STRUCTURING" | "STRUCTURED"
 
-export type RecordStatus = "NEW" | "CONFIRMED" | "REJECTED"
+export type RecordStatus = "NEW" | "NEEDS_CHECK" | "NEEDS_HOLD" | "APPROVABLE" | "APPROVED" | "REJECTED"
 
 export type ExceptionFlag = "MISSING_REQUIRED" | "DUPLICATE_SUSPECT" | "SPEC_MISMATCH" | "UNIT_MISMATCH"
 
@@ -13,6 +13,7 @@ export interface RawRecord {
     rowNo: number
     uploadMethod: UploadMethod
     uploadRowNo: number | null
+    fileName: string | null
     docId: string
     sourceType: SourceType
     supplier: string
@@ -26,10 +27,22 @@ export interface RawRecord {
 
 export type RawRecordInput = Omit<RawRecord, "id" | "rowNo">
 
+export type ResizeStatus = "NONE" | "PROCESSING" | "DONE"
+
+export interface IngestionEntry {
+    entryId: string
+    kind: UploadMethod
+    label: string
+    createdAt: string
+    resizeStatus: ResizeStatus
+    rows: RawRecordInput[]
+}
+
 export interface IngestionSession {
     ingestionId: string
     status: IngestionStatus
     createdAt: string
+    entries: IngestionEntry[]
     records: RawRecord[]
     inspectionId: string | null
 }
@@ -69,14 +82,10 @@ export interface InspectionRecord {
     rowNo: number
     uploadMethod: UploadMethod
     uploadRowNo: number | null
+    fileName: string | null
     observed: InspectionValues
     current: InspectionValues
     status: RecordStatus
     flags: ExceptionFlag[]
     changelog: ChangelogEntry[]
-}
-
-export interface BulkConfirmResult {
-    confirmed: number
-    excluded: number
 }
