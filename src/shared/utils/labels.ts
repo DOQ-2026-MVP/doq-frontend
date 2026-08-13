@@ -16,6 +16,8 @@ export const FIELD_LABEL: Record<keyof InspectionValues, string> = {
 export const SOURCE_TYPE_LABEL: Record<SourceType, string> = {
     XLSX: "XLSX",
     CSV: "CSV",
+    PDF: "PDF",
+    IMAGE: "이미지",
     MANUAL: "수기",
 }
 
