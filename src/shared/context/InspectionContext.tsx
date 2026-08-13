@@ -1,47 +1,50 @@
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
+import { buildInspectionRecords, detectFlags, diffValues, toRawRecords } from "../utils/structuring"
 import { initialSessions, initialRecords } from "@/data"
-import { createContext, useState, useRef, useEffect, useCallback, useMemo } from "react"
 import type {
-    BulkConfirmResult,
+    UploadMethod,
+    RawRecordInput,
     IngestionSession,
     InspectionRecord,
     InspectionValues,
-    RawRecord,
-    RawRecordInput,
     RecordStatus,
+    IngestionEntry,
 } from "../model/inspection"
-import { buildInspectionRecords, detectFlags, diffValues, toRawRecords } from "../utils/structuring"
 
 type LoadState = "loading" | "error" | "ready"
 
-type StreamListener = (records: RawRecord[]) => void
+interface NewEntry {
+    kind: UploadMethod
+    label: string
+    needsResize?: boolean
+    rows: RawRecordInput[]
+}
 
 interface InspectionContextValue {
     sessions: IngestionSession[]
     records: InspectionRecord[]
     loadState: LoadState
     reload: () => void
-
-    createIngestion: (rows: RawRecordInput[]) => IngestionSession
-    appendRawRecords: (ingestionId: string, rows: RawRecordInput[]) => void
-    runStructuring: (ingestionId: string) => Promise<string>
-    subscribeRawStream: (ingestionId: string, listener: StreamListener) => () => void
+    createSession: () => IngestionSession
+    addEntry: (ingestionId: string, entry: NewEntry) => void
+    removeEntry: (ingestionId: string, entryId: string) => void
+    startInspection: (ingestionId: string) => Promise<string>
     getSession: (ingestionId: string) => IngestionSession | undefined
     getRecord: (recordId: string) => InspectionRecord | undefined
     updateRecord: (recordId: string, values: InspectionValues) => void
-    resolveRecord: (recordId: string, status: Extract<RecordStatus, "CONFIRMED" | "REJECTED">, memo: string) => void
-    bulkConfirm: (inspectionId: string) => BulkConfirmResult
+    resolveRecord: (recordId: string, status: Extract<RecordStatus, "APPROVED" | "REJECTED">, memo: string) => void
 }
 
-export const InspectionContext = createContext<InspectionContextValue | null>(null)
+const InspectionContext = createContext<InspectionContextValue | null>(null)
 
 let sessionSequence = 1025
+let entrySequence = 0
 
 export function InspectionProvider({ children }: { children: React.ReactNode }) {
     const [sessions, setSessions] = useState<IngestionSession[]>(initialSessions)
     const [records, setRecords] = useState<InspectionRecord[]>(initialRecords)
     const [loadState, setLoadState] = useState<LoadState>("loading")
     const [reloadKey, setReloadKey] = useState(0)
-    const listeners = useRef<Map<string, Set<StreamListener>>>(new Map())
     const sessionsRef = useRef<IngestionSession[]>(initialSessions)
 
     useEffect(() => {
@@ -62,51 +65,70 @@ export function InspectionProvider({ children }: { children: React.ReactNode }) 
 
     const reload = useCallback(() => setReloadKey((key) => key + 1), [])
 
-    const emit = useCallback((ingestionId: string, appended: RawRecord[]) => {
-        const set = listeners.current.get(ingestionId)
-        if (!set) return
-        set.forEach((listener) => listener(appended))
-    }, [])
-
-    const subscribeRawStream = useCallback((ingestionId: string, listener: StreamListener) => {
-        const set = listeners.current.get(ingestionId) ?? new Set<StreamListener>()
-        set.add(listener)
-        listeners.current.set(ingestionId, set)
-        return () => {
-            set.delete(listener)
-        }
-    }, [])
-
-    const createIngestion = useCallback((rows: RawRecordInput[]) => {
+    const createSession = useCallback(() => {
         sessionSequence += 1
-        const ingestionId = String(sessionSequence)
         const session: IngestionSession = {
-            ingestionId,
+            ingestionId: String(sessionSequence),
             status: "DRAFT",
             createdAt: new Date().toISOString(),
-            records: toRawRecords(rows, 1, "raw-" + ingestionId),
+            entries: [],
+            records: [],
             inspectionId: null,
         }
         setSessions((prev) => [session, ...prev])
         return session
     }, [])
 
-    const appendRawRecords = useCallback(
-        (ingestionId: string, rows: RawRecordInput[]) => {
-            let appended: RawRecord[] = []
-            setSessions((prev) =>
-                prev.map((session) => {
-                    if (session.ingestionId !== ingestionId) return session
-                    appended = toRawRecords(rows, session.records.length + 1, "raw-" + ingestionId + "-" + Date.now())
-                    return { ...session, records: [...session.records, ...appended] }
-                })
+    const addEntry = useCallback((ingestionId: string, entry: NewEntry) => {
+        entrySequence += 1
+        const entryId = "ENT-" + ingestionId + "-" + entrySequence
+        const newEntry: IngestionEntry = {
+            entryId,
+            kind: entry.kind,
+            label: entry.label,
+            createdAt: new Date().toISOString(),
+            resizeStatus: entry.needsResize ? "PROCESSING" : "NONE",
+            rows: entry.rows,
+        }
+        setSessions((prev) =>
+            prev.map((session) =>
+                session.ingestionId === ingestionId && session.status === "DRAFT"
+                    ? { ...session, entries: [...session.entries, newEntry] }
+                    : session
             )
-            window.setTimeout(() => emit(ingestionId, appended), 0)
-        },
-        [emit]
-    )
+        )
 
-    const runStructuring = useCallback((ingestionId: string) => {
+        if (!entry.needsResize) return
+        window.setTimeout(() => {
+            setSessions((prev) =>
+                prev.map((session) =>
+                    session.ingestionId === ingestionId
+                        ? {
+                              ...session,
+                              entries: session.entries.map((item) =>
+                                  item.entryId === entryId ? { ...item, resizeStatus: "DONE" as const } : item
+                              ),
+                          }
+                        : session
+                )
+            )
+        }, 1600)
+    }, [])
+
+    const removeEntry = useCallback((ingestionId: string, entryId: string) => {
+        setSessions((prev) =>
+            prev.map((session) =>
+                session.ingestionId === ingestionId && session.status === "DRAFT"
+                    ? {
+                          ...session,
+                          entries: session.entries.filter((entry) => entry.entryId !== entryId),
+                      }
+                    : session
+            )
+        )
+    }, [])
+
+    const startInspection = useCallback((ingestionId: string) => {
         setSessions((prev) =>
             prev.map((session) =>
                 session.ingestionId === ingestionId ? { ...session, status: "STRUCTURING" } : session
@@ -117,20 +139,32 @@ export function InspectionProvider({ children }: { children: React.ReactNode }) 
             window.setTimeout(() => {
                 const inspectionId = "INS-" + ingestionId
                 const target = sessionsRef.current.find((item) => item.ingestionId === ingestionId)
+                const rawRows = target
+                    ? toRawRecords(
+                          target.entries.flatMap((entry) => entry.rows),
+                          1,
+                          "raw-" + ingestionId
+                      )
+                    : []
+
                 setSessions((prev) =>
                     prev.map((session) =>
                         session.ingestionId === ingestionId
-                            ? { ...session, status: "STRUCTURED", inspectionId }
+                            ? {
+                                  ...session,
+                                  status: "STRUCTURED",
+                                  inspectionId,
+                                  records: rawRows,
+                              }
                             : session
                     )
                 )
-                if (target) {
-                    const built = buildInspectionRecords(ingestionId, inspectionId, target.records)
-                    setRecords((prevRecords) => [
-                        ...prevRecords.filter((record) => record.inspectionId !== inspectionId),
-                        ...built,
-                    ])
-                }
+
+                const built = buildInspectionRecords(ingestionId, inspectionId, rawRows)
+                setRecords((prevRecords) => [
+                    ...prevRecords.filter((record) => record.inspectionId !== inspectionId),
+                    ...built,
+                ])
                 resolve(inspectionId)
             }, 1400)
         })
@@ -157,6 +191,7 @@ export function InspectionProvider({ children }: { children: React.ReactNode }) 
                         rowNo: record.rowNo,
                         uploadMethod: record.uploadMethod,
                         uploadRowNo: record.uploadRowNo,
+                        fileName: record.fileName,
                         docId: values.docId,
                         sourceType: values.sourceType,
                         supplier: values.supplier,
@@ -196,7 +231,7 @@ export function InspectionProvider({ children }: { children: React.ReactNode }) 
     }, [])
 
     const resolveRecord = useCallback(
-        (recordId: string, status: Extract<RecordStatus, "CONFIRMED" | "REJECTED">, memo: string) => {
+        (recordId: string, status: Extract<RecordStatus, "APPROVED" | "REJECTED">, memo: string) => {
             setRecords((prev) =>
                 prev.map((record) => {
                     if (record.recordId !== recordId) return record
@@ -207,7 +242,7 @@ export function InspectionProvider({ children }: { children: React.ReactNode }) 
                             ...record.changelog,
                             {
                                 id: record.recordId + "-CL" + (record.changelog.length + 1),
-                                type: status === "CONFIRMED" ? ("CONFIRM" as const) : ("REJECT" as const),
+                                type: status === "APPROVED" ? ("CONFIRM" as const) : ("REJECT" as const),
                                 fromStatus: record.status,
                                 toStatus: status,
                                 changes: [],
@@ -217,43 +252,9 @@ export function InspectionProvider({ children }: { children: React.ReactNode }) 
                     }
                 })
             )
+            void memo
         },
         []
-    )
-
-    const bulkConfirm = useCallback(
-        (inspectionId: string): BulkConfirmResult => {
-            const targets = records.filter((record) => record.inspectionId === inspectionId && record.status === "NEW")
-            const excludedIds = new Set(
-                targets.filter((record) => record.flags.includes("MISSING_REQUIRED")).map((record) => record.recordId)
-            )
-            const confirmable = targets.filter((record) => !excludedIds.has(record.recordId))
-            const confirmableIds = new Set(confirmable.map((record) => record.recordId))
-
-            setRecords((prev) =>
-                prev.map((record) => {
-                    if (!confirmableIds.has(record.recordId)) return record
-                    return {
-                        ...record,
-                        status: "CONFIRMED" as const,
-                        changelog: [
-                            ...record.changelog,
-                            {
-                                id: record.recordId + "-CL" + (record.changelog.length + 1),
-                                type: "CONFIRM" as const,
-                                fromStatus: record.status,
-                                toStatus: "CONFIRMED" as const,
-                                changes: [],
-                                createdAt: new Date().toISOString(),
-                            },
-                        ],
-                    }
-                })
-            )
-
-            return { confirmed: confirmable.length, excluded: excludedIds.size }
-        },
-        [records]
     )
 
     const value = useMemo(
@@ -262,32 +263,38 @@ export function InspectionProvider({ children }: { children: React.ReactNode }) 
             records,
             loadState,
             reload,
-            createIngestion,
-            appendRawRecords,
-            runStructuring,
-            subscribeRawStream,
+            createSession,
+            addEntry,
+            removeEntry,
+            startInspection,
             getSession,
             getRecord,
             updateRecord,
             resolveRecord,
-            bulkConfirm,
         }),
         [
             sessions,
             records,
             loadState,
             reload,
-            createIngestion,
-            appendRawRecords,
-            runStructuring,
-            subscribeRawStream,
+            createSession,
+            addEntry,
+            removeEntry,
+            startInspection,
             getSession,
             getRecord,
             updateRecord,
             resolveRecord,
-            bulkConfirm,
         ]
     )
 
     return <InspectionContext.Provider value={value}>{children}</InspectionContext.Provider>
+}
+
+export function useInspection(): InspectionContextValue {
+    const context = useContext(InspectionContext)
+    if (!context) {
+        throw new Error("useInspection must be used within InspectionProvider")
+    }
+    return context
 }
