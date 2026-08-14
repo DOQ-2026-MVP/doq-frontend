@@ -4,6 +4,7 @@ import { ArrowLeftIcon } from "lucide-react"
 import { toast } from "sonner"
 import { ExceptionBadge } from "@/components/ExceptionBadge"
 import { MemoDialog } from "@/components/MemoDialog"
+import { SourcePreview } from "@/components/SourcePreview"
 import { StatusBadge, RECORD_STATUS_LABEL } from "@/components/StatusBadge"
 import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog"
 import { useInspection } from "@/shared/context/InspectionContext"
@@ -144,6 +145,11 @@ export function InspectionDetailPage() {
                             {record.fileName ? record.fileName + " / " + record.uploadRowNo + "행" : "수기 입력"}
                         </span>
                     </p>
+                    <SourcePreview
+                        sourceType={record.observed.sourceType}
+                        fileName={record.fileName}
+                        uploadRowNo={record.uploadRowNo}
+                    />
                     <dl className="divide-y divide-gray-100 px-5">
                         {FIELD_ORDER.map((field) => (
                             <div key={field} className="grid grid-cols-3 gap-3 py-2.5">

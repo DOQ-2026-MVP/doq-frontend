@@ -88,6 +88,7 @@ function toCurrent(record: RawRecord, observed: InspectionValues): InspectionVal
     }
 }
 
+/** 예외 탐지 결과에 따른 초기 검수 상태 */
 export function initialStatus(flags: ExceptionFlag[]): InspectionRecord["status"] {
     if (flags.length === 0) return "APPROVABLE"
     if (flags.includes("MISSING_REQUIRED")) return "NEEDS_CHECK"

@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react"
+import React, { useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { AlertTriangleIcon, ArrowRightIcon, CheckIcon, InboxIcon, Loader2Icon, SearchIcon } from "lucide-react"
+import { AlertTriangleIcon, CheckIcon, InboxIcon, Loader2Icon, SearchIcon } from "lucide-react"
 import { ExceptionBadge } from "@/components/ExceptionBadge"
 import { RECORD_STATUS_LABEL, StatusBadge } from "@/components/StatusBadge"
 import { useInspection } from "@/shared/context/InspectionContext"
@@ -10,16 +10,35 @@ import { UPLOAD_METHOD_LABEL } from "@/shared/utils/labels"
 
 const FILTERS: RecordStatus[] = ["NEW", "NEEDS_CHECK", "NEEDS_HOLD", "APPROVABLE", "APPROVED", "REJECTED"]
 
-const COLUMNS = [
-    "문서ID",
-    "공급사",
-    "품목명 (원문 → 정규화)",
-    "규격",
-    "단위",
-    "단가 (기존 → 변경)",
-    "적용일",
-    "상태",
-    "예외 유형",
+interface Column {
+    key: string
+    label: React.ReactNode
+}
+
+const COLUMNS: Column[] = [
+    { key: "docId", label: "문서ID" },
+    { key: "supplier", label: "공급사" },
+    {
+        key: "itemName",
+        label: (
+            <>
+                품목명 (정규화 / <span className="font-normal text-gray-400">원문</span>)
+            </>
+        ),
+    },
+    { key: "spec", label: "규격" },
+    { key: "unit", label: "단위" },
+    {
+        key: "price",
+        label: (
+            <>
+                단가 (변경 / <span className="font-normal text-gray-400">기존</span>)
+            </>
+        ),
+    },
+    { key: "effectiveDate", label: "적용일" },
+    { key: "status", label: "상태" },
+    { key: "flags", label: "예외 유형" },
 ]
 
 export function InboxPage() {
@@ -29,6 +48,10 @@ export function InboxPage() {
     const [keyword, setKeyword] = useState("")
     const [statusFilters, setStatusFilters] = useState<RecordStatus[]>([])
 
+    /**
+     * 검수 대상으로 반영된 순서를 그대로 유지하고(새 항목은 맨 뒤),
+     * 전체 목록 기준으로 이어지는 일련번호를 부여한다.
+     */
     const numbered = useMemo(() => records.map((record, index) => ({ record, displayNo: index + 1 })), [records])
 
     const filtered = useMemo(() => {
@@ -164,7 +187,7 @@ export function InboxPage() {
                                 <tr className="border-b border-gray-200 bg-surface">
                                     {COLUMNS.map((column, index) => (
                                         <th
-                                            key={column}
+                                            key={column.key}
                                             scope="col"
                                             className={
                                                 "whitespace-nowrap px-4 py-3 text-xs font-semibold text-gray-500 " +
@@ -173,7 +196,7 @@ export function InboxPage() {
                                                     : "")
                                             }
                                         >
-                                            {column}
+                                            {column.label}
                                         </th>
                                     ))}
                                 </tr>
@@ -221,27 +244,26 @@ export function InboxPage() {
                                                 </span>
                                             </td>
                                             <td className="px-4 py-3">
-                                                <div className="flex max-w-90 items-center gap-1.5">
-                                                    <span
-                                                        title={record.current.rawItemName}
-                                                        className="min-w-0 truncate text-gray-500"
-                                                    >
-                                                        {formatText(record.current.rawItemName)}
-                                                    </span>
-                                                    <ArrowRightIcon
-                                                        className="h-3.5 w-3.5 shrink-0 text-gray-400"
-                                                        aria-hidden="true"
-                                                    />
+                                                <div className="max-w-55">
                                                     <span
                                                         title={record.current.normalizedItemName}
                                                         className={
-                                                            "min-w-0 truncate text-gray-900 " +
+                                                            "block truncate text-sm font-medium text-gray-900 " +
                                                             (normalizedChanged
-                                                                ? "rounded-md bg-gold-50 px-1.5 py-0.5 font-medium"
+                                                                ? "rounded-md bg-gold-50 px-1.5 py-0.5"
                                                                 : "")
                                                         }
                                                     >
                                                         {formatText(record.current.normalizedItemName)}
+                                                    </span>
+                                                    <span
+                                                        title={record.current.rawItemName}
+                                                        className={
+                                                            "mt-0.5 block truncate text-xs text-gray-400 " +
+                                                            (normalizedChanged ? "px-1.5" : "")
+                                                        }
+                                                    >
+                                                        {formatText(record.current.rawItemName)}
                                                     </span>
                                                 </div>
                                             </td>
@@ -256,15 +278,11 @@ export function InboxPage() {
                                                 </span>
                                             </td>
                                             <td className="whitespace-nowrap px-4 py-3">
-                                                <span className="text-gray-500">
-                                                    {formatPrice(record.current.priceBefore)}
-                                                </span>
-                                                <ArrowRightIcon
-                                                    className="mx-1.5 inline h-3.5 w-3.5 text-gray-400"
-                                                    aria-hidden="true"
-                                                />
-                                                <span className="font-medium text-gray-900">
+                                                <span className="block text-sm font-medium text-gray-900">
                                                     {formatPrice(record.current.priceAfter)}
+                                                </span>
+                                                <span className="mt-0.5 block text-xs text-gray-400">
+                                                    {formatPrice(record.current.priceBefore)}
                                                 </span>
                                             </td>
                                             <td className="whitespace-nowrap px-4 py-3 text-gray-700">

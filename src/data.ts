@@ -1,4 +1,4 @@
-import type { RawRecordInput, IngestionSession, InspectionRecord, IngestionEntry } from "./shared/model/inspection"
+import type { RawRecordInput, IngestionEntry, IngestionSession, InspectionRecord } from "./shared/model/inspection"
 import { toRawRecords, buildInspectionRecords } from "./shared/utils/structuring"
 
 const MAIN_FILE = "증빙_20건.xlsx"
