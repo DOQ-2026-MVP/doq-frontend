@@ -1,6 +1,5 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
-import { buildInspectionRecords, detectFlags, diffValues, toRawRecords } from "../utils/structuring"
 import { initialSessions, initialRecords } from "@/data"
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import type {
     UploadMethod,
     RawRecordInput,
@@ -10,6 +9,7 @@ import type {
     RecordStatus,
     IngestionEntry,
 } from "../model/inspection"
+import { toRawRecords, buildInspectionRecords, diffValues, detectFlags, initialStatus } from "../utils/structuring"
 
 type LoadState = "loading" | "error" | "ready"
 
@@ -33,6 +33,7 @@ interface InspectionContextValue {
     getRecord: (recordId: string) => InspectionRecord | undefined
     updateRecord: (recordId: string, values: InspectionValues) => void
     resolveRecord: (recordId: string, status: Extract<RecordStatus, "APPROVED" | "REJECTED">, memo: string) => void
+    reviewRecord: (recordId: string, memo: string) => void
 }
 
 const InspectionContext = createContext<InspectionContextValue | null>(null)
@@ -247,15 +248,46 @@ export function InspectionProvider({ children }: { children: React.ReactNode }) 
                                 toStatus: status,
                                 changes: [],
                                 createdAt: new Date().toISOString(),
+                                memo,
                             },
                         ],
                     }
                 })
             )
-            void memo
         },
         []
     )
+
+    const reviewRecord = useCallback((recordId: string, memo: string) => {
+        setRecords((prev) =>
+            prev.map((record) => {
+                if (record.recordId !== recordId) return record
+
+                /** 승인 / 반려 직전 상태로 복귀 (없으면 예외 기준 상태로 복귀) */
+                const lastDecision = [...record.changelog]
+                    .reverse()
+                    .find((entry) => entry.type === "CONFIRM" || entry.type === "REJECT")
+                const restored = lastDecision ? lastDecision.fromStatus : initialStatus(record.flags)
+
+                return {
+                    ...record,
+                    status: restored,
+                    changelog: [
+                        ...record.changelog,
+                        {
+                            id: record.recordId + "-CL" + (record.changelog.length + 1),
+                            type: "REVIEW" as const,
+                            fromStatus: record.status,
+                            toStatus: restored,
+                            changes: [],
+                            createdAt: new Date().toISOString(),
+                            memo,
+                        },
+                    ],
+                }
+            })
+        )
+    }, [])
 
     const value = useMemo(
         () => ({
@@ -271,6 +303,7 @@ export function InspectionProvider({ children }: { children: React.ReactNode }) 
             getRecord,
             updateRecord,
             resolveRecord,
+            reviewRecord,
         }),
         [
             sessions,
@@ -285,6 +318,7 @@ export function InspectionProvider({ children }: { children: React.ReactNode }) 
             getRecord,
             updateRecord,
             resolveRecord,
+            reviewRecord,
         ]
     )
 

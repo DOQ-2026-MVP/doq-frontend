@@ -31,21 +31,22 @@ const CHANGELOG_TYPE_LABEL: Record<ChangelogEntry["type"], string> = {
     UPDATE: "수정",
     CONFIRM: "승인",
     REJECT: "반려",
+    REVIEW: "재검토",
 }
 
 const FIELD_CLASS =
     "w-full rounded-xl border border-gray-300 px-3 py-1.5 text-sm text-gray-900 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary-100"
 
-type PendingAction = "BACK" | "CONFIRM" | "REJECT"
+type PendingAction = "BACK" | "CONFIRM" | "REJECT" | "REVIEW"
 
 export function InspectionDetailPage() {
     const { recordId } = useParams<{ recordId: string }>()
     const navigate = useNavigate()
-    const { getRecord, updateRecord, resolveRecord } = useInspection()
+    const { getRecord, updateRecord, resolveRecord, reviewRecord } = useInspection()
     const record = recordId ? getRecord(recordId) : undefined
 
     const [draft, setDraft] = useState<InspectionValues | null>(record ? record.current : null)
-    const [memoDialog, setMemoDialog] = useState<null | "CONFIRM" | "REJECT">(null)
+    const [memoDialog, setMemoDialog] = useState<null | "CONFIRM" | "REJECT" | "REVIEW">(null)
     const [unsaved, setUnsaved] = useState<PendingAction | null>(null)
     const loadedRecordId = useRef(recordId)
 
@@ -104,6 +105,14 @@ export function InspectionDetailPage() {
 
     function handleMemoSubmit(memo: string) {
         if (!memoDialog) return
+
+        if (memoDialog === "REVIEW") {
+            reviewRecord(record!.recordId, memo)
+            toast.success("재검토 대상으로 되돌렸습니다.")
+            setMemoDialog(null)
+            return
+        }
+
         resolveRecord(record!.recordId, memoDialog === "CONFIRM" ? "APPROVED" : "REJECTED", memo)
         toast.success(memoDialog === "CONFIRM" ? "검수가 승인되었습니다." : "검수가 반려되었습니다.")
         setMemoDialog(null)
@@ -226,15 +235,17 @@ export function InspectionDetailPage() {
                         <table className="w-full min-w-190 text-left text-sm">
                             <thead>
                                 <tr className="border-b border-gray-200 bg-gray-50">
-                                    {["유형", "변경 항목", "변경 전", "변경 후", "상태", "변경 시각"].map((column) => (
-                                        <th
-                                            key={column}
-                                            scope="col"
-                                            className="whitespace-nowrap px-5 py-3 text-xs font-semibold text-gray-500"
-                                        >
-                                            {column}
-                                        </th>
-                                    ))}
+                                    {["유형", "변경 항목", "변경 전", "변경 후", "상태", "변경 시각", "메모"].map(
+                                        (column) => (
+                                            <th
+                                                key={column}
+                                                scope="col"
+                                                className="whitespace-nowrap px-5 py-3 text-xs font-semibold text-gray-500"
+                                            >
+                                                {column}
+                                            </th>
+                                        )
+                                    )}
                                 </tr>
                             </thead>
                             <tbody>
@@ -253,6 +264,11 @@ export function InspectionDetailPage() {
                                             </td>
                                             <td className="whitespace-nowrap px-5 py-2.5 text-gray-500">
                                                 {formatDateTime(entry.createdAt)}
+                                            </td>
+                                            <td className="px-5 py-2.5 text-gray-700">
+                                                <span title={entry.memo ?? ""} className="block max-w-55 truncate">
+                                                    {formatText(entry.memo ?? "")}
+                                                </span>
                                             </td>
                                         </tr>
                                     ) : (
@@ -287,6 +303,16 @@ export function InspectionDetailPage() {
                                                 <td className="whitespace-nowrap px-5 py-2.5 text-gray-500">
                                                     {index === 0 ? formatDateTime(entry.createdAt) : ""}
                                                 </td>
+                                                <td className="px-5 py-2.5 text-gray-700">
+                                                    {index === 0 && (
+                                                        <span
+                                                            title={entry.memo ?? ""}
+                                                            className="block max-w-55 truncate"
+                                                        >
+                                                            {formatText(entry.memo ?? "")}
+                                                        </span>
+                                                    )}
+                                                </td>
                                             </tr>
                                         ))
                                     )
@@ -310,6 +336,13 @@ export function InspectionDetailPage() {
                         className="rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
                     >
                         저장
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => requestAction("REVIEW")}
+                        className="rounded-xl border border-primary bg-white px-4 py-2 text-sm font-medium text-primary hover:bg-primary-50"
+                    >
+                        재검토
                     </button>
                     <button
                         type="button"
@@ -353,13 +386,15 @@ export function InspectionDetailPage() {
 
             <MemoDialog
                 open={memoDialog !== null}
-                title={memoDialog === "REJECT" ? "검수 반려" : "검수 승인"}
+                title={memoDialog === "REJECT" ? "검수 반려" : memoDialog === "REVIEW" ? "재검토" : "검수 승인"}
                 description={
                     memoDialog === "REJECT"
                         ? "반려 사유를 검수 메모로 남길 수 있습니다."
-                        : "승인과 함께 남길 검수 메모를 입력할 수 있습니다."
+                        : memoDialog === "REVIEW"
+                          ? "승인 / 반려 이전 상태로 되돌립니다. 재검토 사유를 검수 메모로 남길 수 있습니다."
+                          : "승인과 함께 남길 검수 메모를 입력할 수 있습니다."
                 }
-                confirmLabel={memoDialog === "REJECT" ? "반려" : "승인"}
+                confirmLabel={memoDialog === "REJECT" ? "반려" : memoDialog === "REVIEW" ? "재검토" : "승인"}
                 tone={memoDialog === "REJECT" ? "danger" : "primary"}
                 onCancel={() => setMemoDialog(null)}
                 onSubmit={handleMemoSubmit}

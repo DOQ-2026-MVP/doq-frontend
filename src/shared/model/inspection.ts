@@ -68,11 +68,12 @@ export interface ChangelogChange {
 
 export interface ChangelogEntry {
     id: string
-    type: "UPDATE" | "CONFIRM" | "REJECT"
+    type: "UPDATE" | "CONFIRM" | "REJECT" | "REVIEW"
     fromStatus: RecordStatus
     toStatus: RecordStatus
     changes: ChangelogChange[]
     createdAt: string
+    memo?: string
 }
 
 export interface InspectionRecord {
