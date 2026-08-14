@@ -51,7 +51,7 @@ export function detectFlags(record: RawRecord, all: RawRecord[]): ExceptionFlag[
                 other.docId === record.docId &&
                 normalizeItemName(other.rawItemName) === normalizeItemName(record.rawItemName)
         ).length > 1
-    if (duplicated) flags.push("DUPLICATE_SUSPECT")
+    if (duplicated) flags.push("DUPLICATE_SUSPECTED")
 
     if (record.spec.trim() === "" || /[*xX]/.test(record.spec)) {
         flags.push("SPEC_MISMATCH")
@@ -92,8 +92,18 @@ function toCurrent(record: RawRecord, observed: InspectionValues): InspectionVal
 export function initialStatus(flags: ExceptionFlag[]): InspectionRecord["status"] {
     if (flags.length === 0) return "APPROVABLE"
     if (flags.includes("MISSING_REQUIRED")) return "NEEDS_CHECK"
-    if (flags.includes("DUPLICATE_SUSPECT")) return "NEEDS_HOLD"
+    if (flags.includes("DUPLICATE_SUSPECTED")) return "NEEDS_HOLD"
     return "NEW"
+}
+
+/**
+ * 실제 백엔드 status(NEW/CONFIRMED/REJECTED)를 화면용 세분화 상태로 매핑한다.
+ * NEW는 아직 확정 전이라 탐지된 flags로 검토 우선순위를 세분화해서 보여준다.
+ */
+export function deriveDisplayStatus(backendStatus: string, flags: ExceptionFlag[]): InspectionRecord["status"] {
+    if (backendStatus === "CONFIRMED") return "APPROVED"
+    if (backendStatus === "REJECTED") return "REJECTED"
+    return initialStatus(flags)
 }
 
 export function buildInspectionRecords(

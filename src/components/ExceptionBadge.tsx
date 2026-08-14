@@ -2,14 +2,14 @@ import type { ExceptionFlag } from "@/shared/model/inspection"
 
 export const EXCEPTION_LABEL: Record<ExceptionFlag, string> = {
     MISSING_REQUIRED: "필수값 누락",
-    DUPLICATE_SUSPECT: "중복 의심",
+    DUPLICATE_SUSPECTED: "중복 의심",
     SPEC_MISMATCH: "규격 불일치",
     UNIT_MISMATCH: "단위 불일치",
 }
 
 export const EXCEPTION_SHORT_LABEL: Record<ExceptionFlag, string> = {
     MISSING_REQUIRED: "누락",
-    DUPLICATE_SUSPECT: "중복",
+    DUPLICATE_SUSPECTED: "중복",
     SPEC_MISMATCH: "규격",
     UNIT_MISMATCH: "단위",
 }

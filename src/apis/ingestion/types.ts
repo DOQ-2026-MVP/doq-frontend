@@ -15,3 +15,12 @@ export type IngestionDetail = {
     uploads: IngestionUpload[]
     manuals?: any[]
 }
+
+export type IngestionRecord = {
+    id: number
+    uploadId: number | null
+    uploadType: string | null
+    uploadRowNo: number | null
+    content: Record<string, string | null>
+    createdAt: string
+}

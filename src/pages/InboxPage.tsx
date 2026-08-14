@@ -1,10 +1,17 @@
 import React, { useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { AlertTriangleIcon, CheckIcon, InboxIcon, Loader2Icon, SearchIcon } from "lucide-react"
+import { toast } from "sonner"
+import {
+    useAllInspectionRecords,
+    useConfirmAllInspections,
+    type MergedInspectionRecord,
+    type InspectionBulkConfirmResult,
+} from "@/apis/inspection"
 import { ExceptionBadge } from "@/components/ExceptionBadge"
 import { RECORD_STATUS_LABEL, StatusBadge } from "@/components/StatusBadge"
-import { useInspection } from "@/shared/context/InspectionContext"
-import type { RecordStatus } from "@/shared/model/inspection"
+import type { ExceptionFlag, RecordStatus } from "@/shared/model/inspection"
+import { deriveDisplayStatus } from "@/shared/utils/structuring"
 import { formatText, formatPrice } from "@/shared/utils/format"
 import { UPLOAD_METHOD_LABEL } from "@/shared/utils/labels"
 
@@ -41,9 +48,106 @@ const COLUMNS: Column[] = [
     { key: "flags", label: "예외 유형" },
 ]
 
+type InboxRecord = {
+    recordId: string
+    inspectionId: string
+    ingestionId: string
+    rowNo: number
+    uploadMethod: "FILE" | "MANUAL"
+    uploadRowNo: number | null
+    fileName: string | null
+    observed: {
+        docId: string
+        sourceType: string
+        supplier: string
+        rawItemName: string
+        normalizedItemName: string
+        spec: string
+        unit: string
+        priceBefore: string
+        priceAfter: string
+        effectiveDate: string
+    }
+    current: {
+        docId: string
+        sourceType: string
+        supplier: string
+        rawItemName: string
+        normalizedItemName: string
+        spec: string
+        unit: string
+        priceBefore: string
+        priceAfter: string
+        effectiveDate: string
+    }
+    status: RecordStatus
+    flags: ExceptionFlag[]
+    changelog: unknown[]
+}
+
+function normalizeInspectionRows(data: MergedInspectionRecord[] | undefined): InboxRecord[] {
+    const list = Array.isArray(data) ? data : []
+
+    return list.map((row) => {
+        const flags = (Array.isArray(row.flags) ? row.flags : []) as ExceptionFlag[]
+        const toValues = (values: MergedInspectionRecord["current"]) => ({
+            docId: values?.docId ?? "",
+            sourceType: String(values?.sourceType ?? "MANUAL").toUpperCase(),
+            supplier: values?.supplier ?? "",
+            rawItemName: values?.rawItemName ?? "",
+            normalizedItemName: values?.normalizedItemName ?? values?.rawItemName ?? "",
+            spec: values?.spec ?? "",
+            unit: values?.unit ?? "",
+            priceBefore: values?.priceBefore ?? "",
+            priceAfter: values?.priceAfter ?? "",
+            effectiveDate: values?.effectiveDate ?? "",
+        })
+
+        return {
+            recordId: String(row.recordId),
+            inspectionId: String(row.inspectionId),
+            ingestionId: String(row.ingestionId),
+            rowNo: row.rowNo ?? 1,
+            uploadMethod: row.uploadType ? ("FILE" as const) : ("MANUAL" as const),
+            uploadRowNo: row.rowNo ?? null,
+            fileName: null,
+            observed: toValues(row.observed),
+            current: toValues(row.current),
+            status: deriveDisplayStatus(row.status, flags),
+            flags,
+            changelog: [],
+        }
+    })
+}
+
 export function InboxPage() {
     const navigate = useNavigate()
-    const { records, loadState, reload } = useInspection()
+    const inspectionListQuery = useAllInspectionRecords()
+    const records = useMemo<InboxRecord[]>(() => normalizeInspectionRows(inspectionListQuery.data), [inspectionListQuery.data])
+    const loadState = inspectionListQuery.isLoading ? "loading" : inspectionListQuery.isError ? "error" : "ready"
+    const reload = () => inspectionListQuery.refetch()
+
+    const confirmAllMutation = useConfirmAllInspections()
+    const inspectionIds = useMemo(() => {
+        const ids = new Set<number>()
+        ;(inspectionListQuery.data ?? []).forEach((record) => ids.add(record.inspectionId))
+        return Array.from(ids)
+    }, [inspectionListQuery.data])
+
+    async function handleConfirmAll() {
+        if (inspectionIds.length === 0) return
+        try {
+            const results: InspectionBulkConfirmResult[] = await confirmAllMutation.mutateAsync(inspectionIds)
+            const confirmed = results.reduce((sum, item) => sum + item.confirmedCount, 0)
+            const blocked = results.reduce((sum, item) => sum + item.blockedCount, 0)
+            toast.success(
+                confirmed + "건 일괄 승인되었습니다" + (blocked > 0 ? ` (필수값 누락 ${blocked}건은 제외)` : "")
+            )
+        } catch (e) {
+            console.error("bulk confirm failed", e)
+            toast.error("일괄 승인에 실패했습니다.")
+        }
+    }
 
     const [keyword, setKeyword] = useState("")
     const [statusFilters, setStatusFilters] = useState<RecordStatus[]>([])
@@ -79,10 +183,27 @@ export function InboxPage() {
 
     return (
         <div className="mx-auto w-full max-w-7xl">
-            <h1 className="text-xl font-semibold text-gray-900">검수 목록</h1>
-            <p className="mt-1 text-sm text-gray-500">
-                구조화된 검수 대상을 조회합니다. 행을 클릭하면 검수 상세로 이동합니다.
-            </p>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                    <h1 className="text-xl font-semibold text-gray-900">검수 목록</h1>
+                    <p className="mt-1 text-sm text-gray-500">
+                        구조화된 검수 대상을 조회합니다. 행을 클릭하면 검수 상세로 이동합니다.
+                    </p>
+                </div>
+                <button
+                    type="button"
+                    onClick={handleConfirmAll}
+                    disabled={inspectionIds.length === 0 || confirmAllMutation.isPending}
+                    className={
+                        "shrink-0 rounded-xl px-4 py-2 text-sm font-semibold " +
+                        (inspectionIds.length === 0 || confirmAllMutation.isPending
+                            ? "cursor-not-allowed border border-gray-200 bg-gray-100 text-gray-400"
+                            : "bg-primary text-white hover:bg-primary-700")
+                    }
+                >
+                    {confirmAllMutation.isPending ? "일괄 승인 중..." : "전체 승인 (남은 신규 건)"}
+                </button>
+            </div>
 
             <div className="mt-6 rounded-xl border border-gray-200 bg-white shadow-sm">
                 <div className="flex flex-col gap-3 border-b border-gray-200 p-4 xl:flex-row xl:items-center xl:justify-between">
@@ -205,16 +326,20 @@ export function InboxPage() {
                                 {filtered.map(({ record, displayNo }) => {
                                     const normalizedChanged =
                                         record.current.normalizedItemName !== record.current.rawItemName
+                                    const goToDetail = () =>
+                                        navigate("/inspection/" + record.recordId, {
+                                            state: { inspectionId: record.inspectionId, ingestionId: record.ingestionId },
+                                        })
                                     return (
                                         <tr
                                             key={record.recordId}
                                             tabIndex={0}
                                             role="link"
-                                            onClick={() => navigate("/inspection/" + record.recordId)}
+                                            onClick={goToDetail}
                                             onKeyDown={(event) => {
                                                 if (event.key === "Enter" || event.key === " ") {
                                                     event.preventDefault()
-                                                    navigate("/inspection/" + record.recordId)
+                                                    goToDetail()
                                                 }
                                             }}
                                             className="group cursor-pointer border-b border-gray-100 last:border-b-0 hover:bg-primary-50/60 focus:bg-primary-50 focus:outline-none"
@@ -296,8 +421,8 @@ export function InboxPage() {
                                                     <span className="text-gray-400">-</span>
                                                 ) : (
                                                     <div className="flex gap-1.5">
-                                                        {record.flags.map((flag) => (
-                                                            <ExceptionBadge key={flag} flag={flag} short />
+                                                        {record.flags.map((flag: string) => (
+                                                            <ExceptionBadge key={flag} flag={flag as any} short />
                                                         ))}
                                                     </div>
                                                 )}

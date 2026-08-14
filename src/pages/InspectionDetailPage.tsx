@@ -1,14 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { useNavigate, useParams } from "react-router-dom"
-import { ArrowLeftIcon } from "lucide-react"
+import { useLocation, useNavigate, useParams } from "react-router-dom"
+import { useQueryClient } from "@tanstack/react-query"
+import { ArrowLeftIcon, Loader2Icon } from "lucide-react"
 import { toast } from "sonner"
 import { ExceptionBadge } from "@/components/ExceptionBadge"
 import { MemoDialog } from "@/components/MemoDialog"
 import { SourcePreview } from "@/components/SourcePreview"
-import { StatusBadge, RECORD_STATUS_LABEL } from "@/components/StatusBadge"
+import { StatusBadge } from "@/components/StatusBadge"
 import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog"
-import { useInspection } from "@/shared/context/InspectionContext"
-import type { InspectionValues, ChangelogEntry, SourceType } from "@/shared/model/inspection"
+import {
+    useInspectionDetail,
+    useRecordChangelog,
+    usePatchRecord,
+    useConfirmRecord,
+    useRejectRecord,
+} from "@/apis/inspection"
+import { useGetRecordsFor } from "@/apis/ingestion"
+import type { InspectionRecordDto } from "@/apis/inspection/types"
+import type { ExceptionFlag, InspectionValues, SourceType } from "@/shared/model/inspection"
+import { deriveDisplayStatus } from "@/shared/utils/structuring"
 import { formatPrice, formatText, formatDateTime } from "@/shared/utils/format"
 import { FIELD_LABEL, SOURCE_TYPE_LABEL } from "@/shared/utils/labels"
 
@@ -27,11 +37,16 @@ const FIELD_ORDER: (keyof InspectionValues)[] = [
 
 const PRICE_FIELDS: (keyof InspectionValues)[] = ["priceBefore", "priceAfter"]
 
-const CHANGELOG_TYPE_LABEL: Record<ChangelogEntry["type"], string> = {
-    UPDATE: "수정",
+const CHANGE_TYPE_LABEL: Record<string, string> = {
+    EDIT: "수정",
     CONFIRM: "승인",
     REJECT: "반려",
-    REVIEW: "재검토",
+}
+
+const BACKEND_STATUS_LABEL: Record<string, string> = {
+    NEW: "신규",
+    CONFIRMED: "승인",
+    REJECTED: "반려",
 }
 
 const FIELD_CLASS =
@@ -39,29 +54,92 @@ const FIELD_CLASS =
 
 type PendingAction = "BACK" | "CONFIRM" | "REJECT" | "REVIEW"
 
+function toValues(values: InspectionRecordDto["current"]): InspectionValues {
+    return {
+        docId: values?.docId ?? "",
+        sourceType: (values?.sourceType ?? "MANUAL") as SourceType,
+        supplier: values?.supplier ?? "",
+        rawItemName: values?.rawItemName ?? "",
+        spec: values?.spec ?? "",
+        unit: values?.unit ?? "",
+        priceBefore: values?.priceBefore ?? "",
+        priceAfter: values?.priceAfter ?? "",
+        effectiveDate: values?.effectiveDate ?? "",
+        normalizedItemName: values?.normalizedItemName ?? values?.rawItemName ?? "",
+    }
+}
+
 export function InspectionDetailPage() {
     const { recordId } = useParams<{ recordId: string }>()
     const navigate = useNavigate()
-    const { getRecord, updateRecord, resolveRecord, reviewRecord } = useInspection()
-    const record = recordId ? getRecord(recordId) : undefined
+    const location = useLocation()
+    const queryClient = useQueryClient()
 
-    const [draft, setDraft] = useState<InspectionValues | null>(record ? record.current : null)
+    const stateInspectionId = (location.state as { inspectionId?: string; ingestionId?: string } | null)?.inspectionId
+    const detailQuery = useInspectionDetail(stateInspectionId)
+    const changelogQuery = useRecordChangelog(recordId)
+    const patchMutation = usePatchRecord()
+    const confirmMutation = useConfirmRecord()
+    const rejectMutation = useRejectRecord()
+
+    const dto = useMemo(
+        () => detailQuery.data?.records.find((item) => String(item.recordId) === recordId),
+        [detailQuery.data, recordId]
+    )
+    const ingestionId = detailQuery.data?.ingestionId
+    const inspectionId = detailQuery.data?.inspectionId
+
+    // 원본 파일 미리보기용 — 검수 레코드의 recordId는 인입 원본 행의 id와 같다.
+    const rawRecordsQuery = useGetRecordsFor(ingestionId)
+    const uploadId = useMemo(
+        () => rawRecordsQuery.data?.find((item) => item.id === dto?.recordId)?.uploadId ?? null,
+        [rawRecordsQuery.data, dto]
+    )
+
+    const record = useMemo(() => {
+        if (!dto) return undefined
+        const flags = (Array.isArray(dto.flags) ? dto.flags : []) as ExceptionFlag[]
+        return {
+            recordId: String(dto.recordId),
+            rowNo: dto.rowNo ?? 1,
+            uploadMethod: dto.uploadType ? ("FILE" as const) : ("MANUAL" as const),
+            uploadRowNo: dto.rowNo ?? null,
+            fileName: null as string | null,
+            observed: toValues(dto.observed),
+            current: toValues(dto.current),
+            status: deriveDisplayStatus(dto.status, flags),
+            flags,
+        }
+    }, [dto])
+
+    const [draft, setDraft] = useState<InspectionValues | null>(null)
     const [memoDialog, setMemoDialog] = useState<null | "CONFIRM" | "REJECT" | "REVIEW">(null)
     const [unsaved, setUnsaved] = useState<PendingAction | null>(null)
-    const loadedRecordId = useRef(recordId)
+    const loadedRecordId = useRef<string | undefined>(undefined)
 
     useEffect(() => {
-        if (loadedRecordId.current === recordId) return
+        if (loadedRecordId.current === recordId && draft !== null) return
+        if (!record) return
         loadedRecordId.current = recordId
-        setDraft(record ? record.current : null)
+        setDraft(record.current)
         setMemoDialog(null)
         setUnsaved(null)
-    }, [recordId, record])
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [recordId, record, draft])
 
     const isDirty = useMemo(() => {
         if (!record || !draft) return false
         return FIELD_ORDER.some((field) => record.current[field] !== draft[field])
     }, [record, draft])
+
+    if (detailQuery.isLoading) {
+        return (
+            <div className="mx-auto flex w-full max-w-3xl items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white p-8 text-sm text-gray-500 shadow-sm">
+                <Loader2Icon className="h-4 w-4 animate-spin text-primary" aria-hidden="true" />
+                불러오는 중입니다.
+            </div>
+        )
+    }
 
     if (!record || !draft) {
         return (
@@ -81,9 +159,22 @@ export function InspectionDetailPage() {
     const inboxPath = "/inbox"
     const missingRequired = record.flags.includes("MISSING_REQUIRED")
 
-    function handleSave() {
-        updateRecord(record!.recordId, draft!)
-        toast.success("수정되었습니다.")
+    function invalidateInspection() {
+        queryClient.invalidateQueries({ queryKey: ["inspection", stateInspectionId] })
+        queryClient.invalidateQueries({ queryKey: ["inspection", "list"] })
+        queryClient.invalidateQueries({ queryKey: ["inspection", "changelog", recordId] })
+    }
+
+    async function handleSave() {
+        if (!record || !draft) return
+        try {
+            await patchMutation.mutateAsync({ recordId: record.recordId, body: draft })
+            invalidateInspection()
+            toast.success("수정되었습니다.")
+        } catch (e) {
+            console.error(e)
+            toast.error("수정에 실패했습니다.")
+        }
     }
 
     function requestAction(action: PendingAction) {
@@ -103,20 +194,28 @@ export function InspectionDetailPage() {
         setMemoDialog(action)
     }
 
-    function handleMemoSubmit(memo: string) {
-        if (!memoDialog) return
+    async function handleMemoSubmit(memo: string) {
+        if (!memoDialog || !record) return
 
-        if (memoDialog === "REVIEW") {
-            reviewRecord(record!.recordId, memo)
-            toast.success("재검토 대상으로 되돌렸습니다.")
-            setMemoDialog(null)
-            return
+        try {
+            if (memoDialog === "CONFIRM") {
+                await confirmMutation.mutateAsync({ recordId: record.recordId, memo })
+                invalidateInspection()
+                toast.success("검수가 승인되었습니다.")
+                setMemoDialog(null)
+                navigate(inboxPath)
+            } else {
+                // "재검토"도 실제로는 반려(reject) API로 처리한다 — 반려가 편집 잠금을 푸는 유일한 전이다.
+                await rejectMutation.mutateAsync({ recordId: record.recordId, memo })
+                invalidateInspection()
+                toast.success(memoDialog === "REVIEW" ? "재검토 대상으로 되돌렸습니다." : "검수가 반려되었습니다.")
+                setMemoDialog(null)
+                if (memoDialog === "REJECT") navigate(inboxPath)
+            }
+        } catch (e) {
+            console.error(e)
+            toast.error("요청을 처리하지 못했습니다.")
         }
-
-        resolveRecord(record!.recordId, memoDialog === "CONFIRM" ? "APPROVED" : "REJECTED", memo)
-        toast.success(memoDialog === "CONFIRM" ? "검수가 승인되었습니다." : "검수가 반려되었습니다.")
-        setMemoDialog(null)
-        navigate(inboxPath)
     }
 
     return (
@@ -138,7 +237,7 @@ export function InspectionDetailPage() {
                     <ExceptionBadge key={flag} flag={flag} />
                 ))}
                 <span className="text-sm text-gray-500">
-                    행 번호 {record.rowNo} · 인입 #{record.ingestionId}
+                    행 번호 {record.rowNo} · 인입 #{ingestionId} · 검수 #{inspectionId}
                 </span>
             </div>
 
@@ -149,15 +248,17 @@ export function InspectionDetailPage() {
                         <span className="rounded-md bg-gray-100 px-2 py-0.5 text-xs text-gray-500">읽기 전용</span>
                     </div>
                     <p className="border-b border-gray-100 bg-gray-50 px-5 py-2 text-xs text-gray-600">
-                        원본 파일 ·{" "}
+                        원본 ·{" "}
                         <span className="font-medium text-gray-800">
-                            {record.fileName ? record.fileName + " / " + record.uploadRowNo + "행" : "수기 입력"}
+                            {record.uploadMethod === "FILE" ? record.uploadRowNo + "행" : "수기 입력"}
                         </span>
                     </p>
                     <SourcePreview
                         sourceType={record.observed.sourceType}
                         fileName={record.fileName}
                         uploadRowNo={record.uploadRowNo}
+                        ingestionId={ingestionId}
+                        uploadId={uploadId}
                     />
                     <dl className="divide-y divide-gray-100 px-5">
                         {FIELD_ORDER.map((field) => (
@@ -165,7 +266,7 @@ export function InspectionDetailPage() {
                                 <dt className="text-xs text-gray-500">{FIELD_LABEL[field]}</dt>
                                 <dd className="col-span-2 text-sm text-gray-900">
                                     {field === "sourceType"
-                                        ? SOURCE_TYPE_LABEL[record.observed.sourceType]
+                                        ? (SOURCE_TYPE_LABEL[record.observed.sourceType] ?? record.observed.sourceType)
                                         : PRICE_FIELDS.includes(field)
                                           ? formatPrice(record.observed[field])
                                           : formatText(record.observed[field])}
@@ -228,47 +329,40 @@ export function InspectionDetailPage() {
 
             <section className="mt-4 rounded-xl border border-gray-200 bg-white shadow-sm">
                 <h2 className="border-b border-gray-200 px-5 py-4 text-sm font-semibold text-gray-900">변경 이력</h2>
-                {record.changelog.length === 0 ? (
+                {!changelogQuery.data || changelogQuery.data.length === 0 ? (
                     <p className="px-5 py-8 text-center text-sm text-gray-500">변경 이력이 없습니다.</p>
                 ) : (
                     <div className="overflow-x-auto">
                         <table className="w-full min-w-190 text-left text-sm">
                             <thead>
                                 <tr className="border-b border-gray-200 bg-gray-50">
-                                    {["유형", "변경 항목", "변경 전", "변경 후", "상태", "변경 시각", "메모"].map(
-                                        (column) => (
-                                            <th
-                                                key={column}
-                                                scope="col"
-                                                className="whitespace-nowrap px-5 py-3 text-xs font-semibold text-gray-500"
-                                            >
-                                                {column}
-                                            </th>
-                                        )
-                                    )}
+                                    {["유형", "변경 항목", "변경 전", "변경 후", "상태", "변경 시각"].map((column) => (
+                                        <th
+                                            key={column}
+                                            scope="col"
+                                            className="whitespace-nowrap px-5 py-3 text-xs font-semibold text-gray-500"
+                                        >
+                                            {column}
+                                        </th>
+                                    ))}
                                 </tr>
                             </thead>
                             <tbody>
-                                {record.changelog.map((entry) =>
+                                {changelogQuery.data.map((entry) =>
                                     entry.changes.length === 0 ? (
                                         <tr key={entry.id} className="border-b border-gray-100 last:border-b-0">
                                             <td className="whitespace-nowrap px-5 py-2.5 text-gray-900">
-                                                {CHANGELOG_TYPE_LABEL[entry.type]}
+                                                {CHANGE_TYPE_LABEL[entry.type] ?? entry.type}
                                             </td>
-                                            <td className="px-5 py-2.5 text-gray-400" colSpan={3}>
+                                            <td className="px-5 py-2.5 text-gray-400" colSpan={2}>
                                                 값 변경 없음
                                             </td>
                                             <td className="whitespace-nowrap px-5 py-2.5 text-gray-700">
-                                                {RECORD_STATUS_LABEL[entry.fromStatus]} →{" "}
-                                                {RECORD_STATUS_LABEL[entry.toStatus]}
+                                                {(entry.fromStatus && BACKEND_STATUS_LABEL[entry.fromStatus]) ?? "-"} →{" "}
+                                                {(entry.toStatus && BACKEND_STATUS_LABEL[entry.toStatus]) ?? "-"}
                                             </td>
                                             <td className="whitespace-nowrap px-5 py-2.5 text-gray-500">
                                                 {formatDateTime(entry.createdAt)}
-                                            </td>
-                                            <td className="px-5 py-2.5 text-gray-700">
-                                                <span title={entry.memo ?? ""} className="block max-w-55 truncate">
-                                                    {formatText(entry.memo ?? "")}
-                                                </span>
                                             </td>
                                         </tr>
                                     ) : (
@@ -278,40 +372,30 @@ export function InspectionDetailPage() {
                                                 className="border-b border-gray-100 last:border-b-0"
                                             >
                                                 <td className="whitespace-nowrap px-5 py-2.5 text-gray-900">
-                                                    {index === 0 ? CHANGELOG_TYPE_LABEL[entry.type] : ""}
+                                                    {index === 0 ? (CHANGE_TYPE_LABEL[entry.type] ?? entry.type) : ""}
                                                 </td>
                                                 <td className="whitespace-nowrap px-5 py-2.5 text-gray-700">
-                                                    {FIELD_LABEL[change.field]}
+                                                    {FIELD_LABEL[change.field as keyof InspectionValues] ?? change.field}
                                                 </td>
                                                 <td className="whitespace-nowrap px-5 py-2.5 text-gray-500 line-through">
-                                                    <span title={change.before} className="block max-w-55 truncate">
-                                                        {formatText(change.before)}
+                                                    <span title={change.before ?? ""} className="block max-w-55 truncate">
+                                                        {formatText(change.before ?? "")}
                                                     </span>
                                                 </td>
                                                 <td className="whitespace-nowrap px-5 py-2.5 font-medium text-gray-900">
-                                                    <span title={change.after} className="block max-w-55 truncate">
-                                                        {formatText(change.after)}
+                                                    <span title={change.after ?? ""} className="block max-w-55 truncate">
+                                                        {formatText(change.after ?? "")}
                                                     </span>
                                                 </td>
                                                 <td className="whitespace-nowrap px-5 py-2.5 text-gray-700">
                                                     {index === 0
-                                                        ? RECORD_STATUS_LABEL[entry.fromStatus] +
+                                                        ? ((entry.fromStatus && BACKEND_STATUS_LABEL[entry.fromStatus]) ?? "-") +
                                                           " → " +
-                                                          RECORD_STATUS_LABEL[entry.toStatus]
+                                                          ((entry.toStatus && BACKEND_STATUS_LABEL[entry.toStatus]) ?? "-")
                                                         : ""}
                                                 </td>
                                                 <td className="whitespace-nowrap px-5 py-2.5 text-gray-500">
                                                     {index === 0 ? formatDateTime(entry.createdAt) : ""}
-                                                </td>
-                                                <td className="px-5 py-2.5 text-gray-700">
-                                                    {index === 0 && (
-                                                        <span
-                                                            title={entry.memo ?? ""}
-                                                            className="block max-w-55 truncate"
-                                                        >
-                                                            {formatText(entry.memo ?? "")}
-                                                        </span>
-                                                    )}
                                                 </td>
                                             </tr>
                                         ))

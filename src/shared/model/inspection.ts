@@ -6,7 +6,7 @@ export type IngestionStatus = "DRAFT" | "STRUCTURING" | "STRUCTURED"
 
 export type RecordStatus = "NEW" | "NEEDS_CHECK" | "NEEDS_HOLD" | "APPROVABLE" | "APPROVED" | "REJECTED"
 
-export type ExceptionFlag = "MISSING_REQUIRED" | "DUPLICATE_SUSPECT" | "SPEC_MISMATCH" | "UNIT_MISMATCH"
+export type ExceptionFlag = "MISSING_REQUIRED" | "DUPLICATE_SUSPECTED" | "SPEC_MISMATCH" | "UNIT_MISMATCH"
 
 export interface RawRecord {
     id: string
@@ -45,6 +45,8 @@ export interface IngestionSession {
     entries: IngestionEntry[]
     records: RawRecord[]
     inspectionId: string | null
+    // true for client-only sessions not (yet) persisted on server
+    isLocal?: boolean
 }
 
 export interface InspectionValues {

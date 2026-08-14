@@ -1,15 +1,20 @@
 import { useEffect, useState } from "react"
-import { FileTextIcon, ImageIcon, MaximizeIcon, XIcon } from "lucide-react"
+import { AlertCircleIcon, FileTextIcon, ImageIcon, Loader2Icon, MaximizeIcon, XIcon } from "lucide-react"
+import { getUploadContent } from "@/apis/ingestion"
 import type { SourceType } from "@/shared/model/inspection"
 
 interface SourcePreviewProps {
     sourceType: SourceType
     fileName: string | null
     uploadRowNo: number | null
+    ingestionId?: number | string
+    uploadId?: number | null
 }
 
-export function SourcePreview({ sourceType, fileName, uploadRowNo }: SourcePreviewProps) {
+export function SourcePreview({ sourceType, fileName, uploadRowNo, ingestionId, uploadId }: SourcePreviewProps) {
     const [open, setOpen] = useState(false)
+    const [objectUrl, setObjectUrl] = useState<string | null>(null)
+    const [loadState, setLoadState] = useState<"idle" | "loading" | "ready" | "error">("idle")
 
     useEffect(() => {
         if (!open) return
@@ -20,12 +25,38 @@ export function SourcePreview({ sourceType, fileName, uploadRowNo }: SourcePrevi
         return () => window.removeEventListener("keydown", onKeyDown)
     }, [open])
 
+    // 원본 보기를 처음 열 때 실제 업로드 원본 파일을 받아온다 (getUploadContent).
+    useEffect(() => {
+        if (!open || objectUrl || !ingestionId || !uploadId) return
+        let cancelled = false
+        setLoadState("loading")
+        getUploadContent(ingestionId, uploadId)
+            .then((blob) => {
+                if (cancelled) return
+                setObjectUrl(URL.createObjectURL(blob))
+                setLoadState("ready")
+            })
+            .catch(() => {
+                if (!cancelled) setLoadState("error")
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [open, objectUrl, ingestionId, uploadId])
+
+    useEffect(() => {
+        return () => {
+            if (objectUrl) URL.revokeObjectURL(objectUrl)
+        }
+    }, [objectUrl])
+
     if (sourceType !== "PDF" && sourceType !== "IMAGE") return null
 
     const isPdf = sourceType === "PDF"
     const Icon = isPdf ? FileTextIcon : ImageIcon
     const viewerLabel = isPdf ? "PDF 원본 보기" : "이미지 원본 보기"
     const thumbLabel = isPdf ? "첫 페이지 미리보기" : "이미지 썸네일"
+    const canFetch = !!ingestionId && !!uploadId
 
     return (
         <div className="border-b border-gray-100 px-5 py-4">
@@ -43,7 +74,7 @@ export function SourcePreview({ sourceType, fileName, uploadRowNo }: SourcePrevi
                 >
                     <span className="flex h-44 w-full flex-col items-center justify-center gap-2 text-gray-400">
                         <Icon className="h-8 w-8" aria-hidden="true" />
-                        <span className="text-xs">{thumbLabel}</span>
+                        <span className="text-xs">{canFetch ? thumbLabel : "원본 파일 없음 (수기 등록 등)"}</span>
                     </span>
                     <span className="absolute right-2 top-2 hidden rounded-lg bg-white/90 p-1.5 text-gray-600 ring-1 ring-gray-200 group-hover:block">
                         <MaximizeIcon className="h-4 w-4" aria-hidden="true" />
@@ -91,8 +122,30 @@ export function SourcePreview({ sourceType, fileName, uploadRowNo }: SourcePrevi
                             </button>
                         </div>
                         <div className="flex h-[60vh] flex-col items-center justify-center gap-2 bg-gray-50 text-gray-400">
-                            <Icon className="h-10 w-10" aria-hidden="true" />
-                            <p className="text-xs">{isPdf ? "PDF 전체 문서 영역" : "이미지 원본 크기 영역"}</p>
+                            {!canFetch ? (
+                                <>
+                                    <Icon className="h-10 w-10" aria-hidden="true" />
+                                    <p className="text-xs">원본 파일 정보를 찾을 수 없습니다.</p>
+                                </>
+                            ) : loadState === "loading" || loadState === "idle" ? (
+                                <>
+                                    <Loader2Icon className="h-8 w-8 animate-spin text-primary" aria-hidden="true" />
+                                    <p className="text-xs">불러오는 중입니다.</p>
+                                </>
+                            ) : loadState === "error" ? (
+                                <>
+                                    <AlertCircleIcon className="h-8 w-8 text-red-400" aria-hidden="true" />
+                                    <p className="text-xs">원본을 불러오지 못했습니다.</p>
+                                </>
+                            ) : isPdf ? (
+                                <iframe title={viewerLabel} src={objectUrl ?? undefined} className="h-full w-full" />
+                            ) : (
+                                <img
+                                    src={objectUrl ?? undefined}
+                                    alt={fileName ?? "원본 이미지"}
+                                    className="max-h-full max-w-full object-contain"
+                                />
+                            )}
                         </div>
                     </div>
                 </div>

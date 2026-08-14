@@ -2,6 +2,7 @@ import { useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
 import { CheckCircle2Icon, FileSpreadsheetIcon, Loader2Icon, PencilLineIcon, XIcon } from "lucide-react"
+import { useQueryClient } from "@tanstack/react-query"
 import { FileDropZone } from "@/components/FileDropZone"
 import {
     type ManualRecordInput,
@@ -11,10 +12,42 @@ import {
     RawRecordForm,
 } from "@/components/RawRecordForm"
 import { IngestionStatusBadge } from "@/components/StatusBadge"
+import {
+    useUpload,
+    useUploadFor,
+    usePostRecords,
+    usePostRecordsGlobal,
+    useIngestionDetail,
+    useGetRecordsFor,
+    useIngestionEvents,
+    useDeleteUpload,
+    useDeleteRecord,
+    useDeleteRecordsAll,
+    getIngestionDetail,
+} from "@/apis/ingestion"
+import { useRunStructuring } from "@/apis/structuring"
+import { fetchInspections } from "@/apis/inspection"
 import { useInspection } from "@/shared/context/InspectionContext"
 import type { ResizeStatus } from "@/shared/model/inspection"
+import { addStructuredIngestionId } from "@/shared/lib/structuredSessions"
 import { formatDateTime } from "@/shared/utils/format"
 import { needsResize, buildRowsFromFile, resizeFileIfNeeded } from "@/shared/utils/uploadRows"
+
+/**
+ * 구조화(POST /api/structuring)는 응답을 먼저 보내고 실제 인계(Inspection 생성)는 트랜잭션 커밋 후
+ * 별도 스레드에서 비동기로 처리된다 — 응답만 받고 바로 검수 상세를 조회하면 아직 없어서 404가 난다.
+ * ingestion.status가 STRUCTURED로 바뀔 때까지 짧게 폴링해서 기다린다.
+ */
+async function waitForStructured(ingestionId: string, timeoutMs = 20000, intervalMs = 600): Promise<void> {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+        const detail = await getIngestionDetail(ingestionId)
+        if (detail?.status === "STRUCTURED") return
+        if (detail?.status === "FAILED") throw new Error("구조화 실패 (FAILED)")
+        await new Promise((resolve) => window.setTimeout(resolve, intervalMs))
+    }
+    throw new Error("구조화 대기 시간 초과")
+}
 
 type Tab = "FILE" | "MANUAL"
 
@@ -43,7 +76,17 @@ function ResizeStatusTag({ status }: { status: ResizeStatus }) {
 
 export function IntakePage() {
     const navigate = useNavigate()
-    const { sessions, createSession, addEntry, removeEntry, startInspection, getSession } = useInspection()
+    const queryClient = useQueryClient()
+    const { sessions, createSession, addEntry, removeEntry, getSession, linkSession, setSessionStatus, markStructured } =
+        useInspection()
+    const uploadMutation = useUpload()
+    const uploadForMutation = useUploadFor()
+    const postRecordsMutation = usePostRecords()
+    const postRecordsGlobalMutation = usePostRecordsGlobal()
+    const deleteUploadMutation = useDeleteUpload()
+    const deleteRecordMutation = useDeleteRecord()
+    const deleteAllRecordsMutation = useDeleteRecordsAll()
+    const structuringMutation = useRunStructuring()
 
     const [tab, setTab] = useState<Tab>("FILE")
     const [file, setFile] = useState<File | null>(null)
@@ -52,7 +95,14 @@ export function IntakePage() {
     const [activeId, setActiveId] = useState<string | null>(null)
     const statusRef = useRef<HTMLElement>(null)
 
+    const activeIngestionId = activeId ?? undefined
     const activeSession = activeId ? getSession(activeId) : undefined
+    const serverIngestionId = activeSession && !activeSession.isLocal ? activeIngestionId : undefined
+    const ingestionDetailQuery = useIngestionDetail(serverIngestionId)
+    const recordListQuery = useGetRecordsFor(serverIngestionId)
+    useIngestionEvents(serverIngestionId, () => {
+        queryClient.invalidateQueries({ queryKey: ["ingestion"] })
+    })
 
     function ensureSession(): string {
         if (activeSession && activeSession.status === "DRAFT") {
@@ -77,24 +127,50 @@ export function IntakePage() {
             return
         }
 
-        const ingestionId = ensureSession()
+        let ingestionId = ensureSession()
+        let isLocalSession = getSession(ingestionId)?.isLocal ?? true
         let added = 0
 
         if (file) {
             try {
                 const processed = await resizeFileIfNeeded(file)
+                const rows = buildRowsFromFile(processed)
+                if (isLocalSession) {
+                    // no server ingestion yet — upload to global endpoint (creates it) and link the id back
+                    const result = await uploadMutation.mutateAsync(processed)
+                    linkSession(ingestionId, String(result.ingestionId))
+                    ingestionId = String(result.ingestionId)
+                    isLocalSession = false
+                    setActiveId(ingestionId)
+                } else {
+                    await uploadForMutation.mutateAsync({ ingestionId, file: processed })
+                }
                 addEntry(ingestionId, {
                     kind: "FILE",
                     label: processed.name,
                     needsResize: needsResize(processed.name),
-                    rows: buildRowsFromFile(processed),
+                    rows,
                 })
             } catch (e) {
+                const fallbackRows = buildRowsFromFile(file)
+                try {
+                    if (isLocalSession) {
+                        const result = await uploadMutation.mutateAsync(file)
+                        linkSession(ingestionId, String(result.ingestionId))
+                        ingestionId = String(result.ingestionId)
+                        isLocalSession = false
+                        setActiveId(ingestionId)
+                    } else {
+                        await uploadForMutation.mutateAsync({ ingestionId, file })
+                    }
+                } catch (uploadError) {
+                    console.error("file upload failed", uploadError)
+                }
                 addEntry(ingestionId, {
                     kind: "FILE",
                     label: file.name,
                     needsResize: needsResize(file.name),
-                    rows: buildRowsFromFile(file),
+                    rows: fallbackRows,
                 })
             }
             setFile(null)
@@ -103,19 +179,35 @@ export function IntakePage() {
 
         if (hasManual) {
             const labelParts = [manual.docId.trim(), manual.rawItemName.trim()].filter((part) => part !== "")
+            const rows = [
+                {
+                    ...manual,
+                    docId: manual.docId.trim() === "" ? "문서ID 미입력" : manual.docId,
+                    supplier: manual.supplier.trim() === "" ? "공급사 미입력" : manual.supplier,
+                    uploadMethod: "MANUAL" as const,
+                    uploadRowNo: null,
+                    fileName: null,
+                },
+            ]
+
+            try {
+                if (isLocalSession) {
+                    const result = await postRecordsGlobalMutation.mutateAsync(rows)
+                    linkSession(ingestionId, String(result.ingestionId))
+                    ingestionId = String(result.ingestionId)
+                    isLocalSession = false
+                    setActiveId(ingestionId)
+                } else {
+                    await postRecordsMutation.mutateAsync({ ingestionId, body: rows })
+                }
+            } catch (e) {
+                console.error("manual upload failed", e)
+            }
+
             addEntry(ingestionId, {
                 kind: "MANUAL",
                 label: labelParts.length === 0 ? "수기 입력 항목" : labelParts.join(" · "),
-                rows: [
-                    {
-                        ...manual,
-                        docId: manual.docId.trim() === "" ? "문서ID 미입력" : manual.docId,
-                        supplier: manual.supplier.trim() === "" ? "공급사 미입력" : manual.supplier,
-                        uploadMethod: "MANUAL",
-                        uploadRowNo: null,
-                        fileName: null,
-                    },
-                ],
+                rows,
             })
             setManual(EMPTY_MANUAL_INPUT)
             added += 1
@@ -129,12 +221,70 @@ export function IntakePage() {
     }
 
     async function handleStart() {
-        if (!activeSession || activeSession.entries.length === 0) return
-        await startInspection(activeSession.ingestionId)
+        if (!activeSession || activeSession.entries.length === 0 || activeSession.isLocal) return
+        const ingestionId = activeSession.ingestionId
+        setSessionStatus(ingestionId, "STRUCTURING")
+        try {
+            await structuringMutation.mutateAsync(ingestionId)
+            await waitForStructured(ingestionId)
+            const detail = await fetchInspections(ingestionId)
+            addStructuredIngestionId(ingestionId)
+            markStructured(ingestionId, String(detail.inspectionId))
+            queryClient.invalidateQueries({ queryKey: ["inspection"] })
+        } catch (e) {
+            console.error("structuring failed", e)
+            setSessionStatus(ingestionId, "DRAFT")
+            toast.error("검수 대상으로 전환하지 못했습니다.")
+        }
+    }
+
+    async function handleRemoveEntry(entryId: string, entry: { kind: "FILE" | "MANUAL"; label: string; rows?: any[] }) {
+        if (!activeSession) return
+
+        const entryToRemove = activeSession.entries.find((item) => item.entryId === entryId)
+        if (!entryToRemove) return
+
+        if (entry.kind === "FILE") {
+            const upload = ingestionDetailQuery.data?.uploads?.find(
+                (item: { fileName?: string }) =>
+                    item.fileName === entry.label || item.fileName === entryToRemove.label
+            )
+            if (upload?.id) {
+                await deleteUploadMutation.mutateAsync({
+                    ingestionId: activeSession.ingestionId,
+                    uploadId: String(upload.id),
+                })
+            }
+        } else if (Array.isArray(recordListQuery.data)) {
+            const matched = (recordListQuery.data as any[]).find((item: any) => {
+                const itemDocId = item?.docId ?? item?.doc_id ?? item?.documentId ?? item?.document_id ?? ""
+                const itemName = item?.rawItemName ?? item?.raw_item_name ?? item?.itemName ?? item?.name ?? ""
+                const candidate = [itemDocId, itemName].filter(Boolean).join("|")
+                const source = (entry.rows ?? []).map((row: any) => [row?.docId, row?.rawItemName].filter(Boolean).join("|")).filter(Boolean)
+                return source.some((value) => value === candidate)
+            })
+            const recordId = matched?.recordId ?? matched?.id ?? matched?.record_id
+            if (recordId) {
+                await deleteRecordMutation.mutateAsync({
+                    ingestionId: activeSession.ingestionId,
+                    recordId: String(recordId),
+                })
+            }
+        }
+
+        removeEntry(activeSession.ingestionId, entryId)
+    }
+
+    async function handleClearAll() {
+        if (!activeSession) return
+        await deleteAllRecordsMutation.mutateAsync(activeSession.ingestionId)
+        activeSession.entries.forEach((entry) => removeEntry(activeSession.ingestionId, entry.entryId))
     }
 
     const processing = activeSession?.status === "STRUCTURING"
     const structured = activeSession?.status === "STRUCTURED"
+    const serverUploadCount = ingestionDetailQuery.data?.uploads?.length ?? 0
+    const serverRecordCount = Array.isArray(recordListQuery.data) ? recordListQuery.data.length : 0
 
     return (
         <div className="mx-auto w-full max-w-5xl">
@@ -250,7 +400,10 @@ export function IntakePage() {
                     </h2>
                     {activeSession && <IngestionStatusBadge status={activeSession.status} />}
                     {activeSession && (
-                        <span className="text-sm text-gray-500">항목 {activeSession.entries.length}개</span>
+                        <span className="text-sm text-gray-500">
+                            항목 {Math.max(activeSession.entries.length, serverUploadCount)}개
+                            {serverRecordCount > 0 && ` · 서버 레코드 ${serverRecordCount}건`}
+                        </span>
                     )}
 
                     {activeSession && (
@@ -268,19 +421,30 @@ export function IntakePage() {
                                 </span>
                             )}
                             {activeSession.status === "DRAFT" ? (
-                                <button
-                                    type="button"
-                                    onClick={handleStart}
-                                    disabled={activeSession.entries.length === 0}
-                                    className={
-                                        "rounded-xl px-4 py-2 text-sm font-semibold " +
-                                        (activeSession.entries.length === 0
-                                            ? "cursor-not-allowed bg-gray-100 text-gray-400"
-                                            : "bg-primary text-white hover:bg-primary-700")
-                                    }
-                                >
-                                    검수 시작
-                                </button>
+                                <>
+                                    {activeSession.entries.length > 0 && (
+                                        <button
+                                            type="button"
+                                            onClick={handleClearAll}
+                                            className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-100"
+                                        >
+                                            전체 삭제
+                                        </button>
+                                    )}
+                                    <button
+                                        type="button"
+                                        onClick={handleStart}
+                                        disabled={activeSession.entries.length === 0}
+                                        className={
+                                            "rounded-xl px-4 py-2 text-sm font-semibold " +
+                                            (activeSession.entries.length === 0
+                                                ? "cursor-not-allowed bg-gray-100 text-gray-400"
+                                                : "bg-primary text-white hover:bg-primary-700")
+                                        }
+                                    >
+                                        검수 시작
+                                    </button>
+                                </>
                             ) : (
                                 structured && (
                                     <button
@@ -319,7 +483,7 @@ export function IntakePage() {
                                 {activeSession.status === "DRAFT" && (
                                     <button
                                         type="button"
-                                        onClick={() => removeEntry(activeSession.ingestionId, entry.entryId)}
+                                        onClick={() => handleRemoveEntry(entry.entryId, entry)}
                                         className="shrink-0 rounded-lg border border-gray-300 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-surface"
                                     >
                                         취소

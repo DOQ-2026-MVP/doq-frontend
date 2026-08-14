@@ -2,7 +2,7 @@ import axios from "axios"
 import type { AxiosRequestConfig, AxiosResponse, InternalAxiosRequestConfig } from "axios"
 
 const apiInstance = axios.create({
-    baseURL: `${import.meta.env.VITE_API_BASE_URL}${import.meta.env.VITE_API_VERSION}`,
+    baseURL: `${import.meta.env.VITE_API_BASE_URL}`,
     timeout: 10000,
     headers: {
         "Content-Type": "application/json",
@@ -111,3 +111,16 @@ export const ApiHelper = {
         return response.data
     },
 }
+
+/**
+ * 백엔드 공통 응답 envelope — 성공 시 data, 실패 시 error.
+ * (업로드 원본 다운로드·export.json·export.csv는 이 envelope 없이 raw로 내려온다.)
+ */
+export interface ApiEnvelope<T> {
+    success: boolean
+    data: T
+    error?: { code: string; message: string }
+}
+
+/** envelope 응답에서 실제 데이터만 꺼낸다. */
+export const unwrap = <T,>(promise: Promise<ApiEnvelope<T>>): Promise<T> => promise.then((res) => res.data)
