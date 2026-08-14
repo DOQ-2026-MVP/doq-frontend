@@ -1,6 +1,6 @@
 import { useRef, useState } from "react"
 import { UploadCloudIcon } from "lucide-react"
-import { isAcceptedFile, ACCEPT_ATTRIBUTE } from "@/shared/utils/uploadRows"
+import { isAcceptedFile, ACCEPT_ATTRIBUTE, resizeFileIfNeeded } from "@/shared/utils/uploadRows"
 
 interface FileDropZoneProps {
     onChange: (file: File | null) => void
@@ -11,7 +11,7 @@ export function FileDropZone({ onChange }: FileDropZoneProps) {
     const [dragging, setDragging] = useState(false)
     const [error, setError] = useState("")
 
-    function accept(selected: File | null) {
+    async function accept(selected: File | null) {
         if (!selected) return
         if (!isAcceptedFile(selected.name)) {
             setError("XLSX, CSV, PDF, PNG, JPEG 파일만 등록할 수 있습니다.")
@@ -19,7 +19,12 @@ export function FileDropZone({ onChange }: FileDropZoneProps) {
             return
         }
         setError("")
-        onChange(selected)
+        try {
+            const processed = await resizeFileIfNeeded(selected)
+            onChange(processed)
+        } catch (e) {
+            onChange(selected)
+        }
     }
 
     return (
@@ -33,7 +38,7 @@ export function FileDropZone({ onChange }: FileDropZoneProps) {
                 onDrop={(event) => {
                     event.preventDefault()
                     setDragging(false)
-                    accept(event.dataTransfer.files[0] ?? null)
+                    void accept(event.dataTransfer.files[0] ?? null)
                 }}
                 className={
                     "flex flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-8 text-center transition-colors " +
@@ -55,7 +60,7 @@ export function FileDropZone({ onChange }: FileDropZoneProps) {
                     type="file"
                     accept={ACCEPT_ATTRIBUTE}
                     className="hidden"
-                    onChange={(event) => accept(event.target.files?.[0] ?? null)}
+                    onChange={(event) => void accept(event.target.files?.[0] ?? null)}
                 />
             </div>
 

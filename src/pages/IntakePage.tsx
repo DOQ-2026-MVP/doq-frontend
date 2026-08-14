@@ -14,7 +14,7 @@ import { IngestionStatusBadge } from "@/components/StatusBadge"
 import { useInspection } from "@/shared/context/InspectionContext"
 import type { ResizeStatus } from "@/shared/model/inspection"
 import { formatDateTime } from "@/shared/utils/format"
-import { needsResize, buildRowsFromFile } from "@/shared/utils/uploadRows"
+import { needsResize, buildRowsFromFile, resizeFileIfNeeded } from "@/shared/utils/uploadRows"
 
 type Tab = "FILE" | "MANUAL"
 
@@ -63,7 +63,7 @@ export function IntakePage() {
         return session.ingestionId
     }
 
-    function handleRegister() {
+    async function handleRegister() {
         const hasFile = file !== null
         const hasManual = isManualInputFilled(manual)
 
@@ -81,12 +81,22 @@ export function IntakePage() {
         let added = 0
 
         if (file) {
-            addEntry(ingestionId, {
-                kind: "FILE",
-                label: file.name,
-                needsResize: needsResize(file.name),
-                rows: buildRowsFromFile(file),
-            })
+            try {
+                const processed = await resizeFileIfNeeded(file)
+                addEntry(ingestionId, {
+                    kind: "FILE",
+                    label: processed.name,
+                    needsResize: needsResize(processed.name),
+                    rows: buildRowsFromFile(processed),
+                })
+            } catch (e) {
+                addEntry(ingestionId, {
+                    kind: "FILE",
+                    label: file.name,
+                    needsResize: needsResize(file.name),
+                    rows: buildRowsFromFile(file),
+                })
+            }
             setFile(null)
             added += 1
         }
