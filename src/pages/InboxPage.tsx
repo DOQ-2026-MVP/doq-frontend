@@ -29,9 +29,11 @@ export function InboxPage() {
     const [keyword, setKeyword] = useState("")
     const [statusFilters, setStatusFilters] = useState<RecordStatus[]>([])
 
+    const numbered = useMemo(() => records.map((record, index) => ({ record, displayNo: index + 1 })), [records])
+
     const filtered = useMemo(() => {
         const query = keyword.trim().toLowerCase()
-        return records.filter((record) => {
+        return numbered.filter(({ record }) => {
             const matchStatus = statusFilters.length === 0 || statusFilters.includes(record.status)
             const matchKeyword =
                 query === "" ||
@@ -46,7 +48,7 @@ export function InboxPage() {
                     .includes(query)
             return matchStatus && matchKeyword
         })
-    }, [records, keyword, statusFilters])
+    }, [numbered, keyword, statusFilters])
 
     function toggleStatus(status: RecordStatus) {
         setStatusFilters((prev) => (prev.includes(status) ? prev.filter((item) => item !== status) : [...prev, status]))
@@ -177,7 +179,7 @@ export function InboxPage() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {filtered.map((record) => {
+                                {filtered.map(({ record, displayNo }) => {
                                     const normalizedChanged =
                                         record.current.normalizedItemName !== record.current.rawItemName
                                     return (
@@ -195,24 +197,35 @@ export function InboxPage() {
                                             className="group cursor-pointer border-b border-gray-100 last:border-b-0 hover:bg-primary-50/60 focus:bg-primary-50 focus:outline-none"
                                         >
                                             <td className="sticky left-0 z-10 whitespace-nowrap border-r border-gray-100 bg-white px-4 py-3 group-hover:bg-primary-50 group-focus:bg-primary-50">
-                                                <div className="flex items-baseline gap-2">
-                                                    <span className="text-xs text-gray-400">
-                                                        {String(record.rowNo).padStart(2, "0")}
+                                                <div className="flex max-w-60 items-baseline gap-2">
+                                                    <span className="shrink-0 text-xs text-gray-400">
+                                                        {String(displayNo).padStart(2, "0")}
                                                     </span>
-                                                    <span className="text-sm font-semibold text-gray-900">
+                                                    <span
+                                                        title={record.current.docId}
+                                                        className="truncate text-sm font-semibold text-gray-900"
+                                                    >
                                                         {record.current.docId}
                                                     </span>
-                                                    <span className="text-xs text-gray-400">
+                                                    <span className="shrink-0 text-xs text-gray-400">
                                                         {UPLOAD_METHOD_LABEL[record.uploadMethod]}
                                                     </span>
                                                 </div>
                                             </td>
-                                            <td className="whitespace-nowrap px-4 py-3 text-gray-700">
-                                                {record.current.supplier}
+                                            <td className="px-4 py-3 text-gray-700">
+                                                <span
+                                                    title={record.current.supplier}
+                                                    className="block max-w-40 truncate"
+                                                >
+                                                    {record.current.supplier}
+                                                </span>
                                             </td>
                                             <td className="px-4 py-3">
-                                                <div className="flex flex-wrap items-center gap-1.5">
-                                                    <span className="text-gray-500">
+                                                <div className="flex max-w-90 items-center gap-1.5">
+                                                    <span
+                                                        title={record.current.rawItemName}
+                                                        className="min-w-0 truncate text-gray-500"
+                                                    >
                                                         {formatText(record.current.rawItemName)}
                                                     </span>
                                                     <ArrowRightIcon
@@ -220,8 +233,9 @@ export function InboxPage() {
                                                         aria-hidden="true"
                                                     />
                                                     <span
+                                                        title={record.current.normalizedItemName}
                                                         className={
-                                                            "text-gray-900 " +
+                                                            "min-w-0 truncate text-gray-900 " +
                                                             (normalizedChanged
                                                                 ? "rounded-md bg-gold-50 px-1.5 py-0.5 font-medium"
                                                                 : "")
@@ -231,11 +245,15 @@ export function InboxPage() {
                                                     </span>
                                                 </div>
                                             </td>
-                                            <td className="whitespace-nowrap px-4 py-3 text-gray-700">
-                                                {formatText(record.current.spec)}
+                                            <td className="px-4 py-3 text-gray-700">
+                                                <span title={record.current.spec} className="block max-w-40 truncate">
+                                                    {formatText(record.current.spec)}
+                                                </span>
                                             </td>
-                                            <td className="whitespace-nowrap px-4 py-3 text-gray-700">
-                                                {formatText(record.current.unit)}
+                                            <td className="px-4 py-3 text-gray-700">
+                                                <span title={record.current.unit} className="block max-w-20 truncate">
+                                                    {formatText(record.current.unit)}
+                                                </span>
                                             </td>
                                             <td className="whitespace-nowrap px-4 py-3">
                                                 <span className="text-gray-500">
@@ -255,11 +273,11 @@ export function InboxPage() {
                                             <td className="whitespace-nowrap px-4 py-3">
                                                 <StatusBadge status={record.status} />
                                             </td>
-                                            <td className="px-4 py-3">
+                                            <td className="whitespace-nowrap px-4 py-3">
                                                 {record.flags.length === 0 ? (
                                                     <span className="text-gray-400">-</span>
                                                 ) : (
-                                                    <div className="flex flex-wrap gap-1.5">
+                                                    <div className="flex gap-1.5">
                                                         {record.flags.map((flag) => (
                                                             <ExceptionBadge key={flag} flag={flag} short />
                                                         ))}

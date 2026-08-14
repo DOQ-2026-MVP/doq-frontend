@@ -9,7 +9,7 @@ const NAV_ITEMS = [
 
 export function Layout() {
     return (
-        <div className="flex min-h-full w-full flex-col bg-surface">
+        <div className="flex min-h-full w-full flex-col bg-page">
             <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center border-b border-gray-200 bg-white px-4 md:px-6">
                 <div className="flex items-center gap-2">
                     <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary text-xs font-bold text-gold">
@@ -22,7 +22,7 @@ export function Layout() {
             <div className="flex min-h-0 flex-1 flex-col md:flex-row">
                 <nav
                     aria-label="주요 메뉴"
-                    className="shrink-0 border-b border-gray-200 bg-white p-3 md:w-56 md:border-b-0 md:border-r"
+                    className="shrink-0 border-b border-gray-200 bg-white p-3 md:sticky md:top-14 md:h-[calc(100vh-3.5rem)] md:w-56 md:self-start md:overflow-y-auto md:border-b-0 md:border-r"
                 >
                     <ul className="flex gap-2 md:flex-col md:gap-1">
                         {NAV_ITEMS.map((item) => {

@@ -4,8 +4,8 @@ import { ArrowLeftIcon } from "lucide-react"
 import { toast } from "sonner"
 import { ExceptionBadge } from "@/components/ExceptionBadge"
 import { MemoDialog } from "@/components/MemoDialog"
-import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog"
 import { StatusBadge, RECORD_STATUS_LABEL } from "@/components/StatusBadge"
+import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog"
 import { useInspection } from "@/shared/context/InspectionContext"
 import type { InspectionValues, ChangelogEntry, SourceType } from "@/shared/model/inspection"
 import { formatPrice, formatText, formatDateTime } from "@/shared/utils/format"
@@ -28,12 +28,12 @@ const PRICE_FIELDS: (keyof InspectionValues)[] = ["priceBefore", "priceAfter"]
 
 const CHANGELOG_TYPE_LABEL: Record<ChangelogEntry["type"], string> = {
     UPDATE: "수정",
-    CONFIRM: "확정",
+    CONFIRM: "승인",
     REJECT: "반려",
 }
 
 const FIELD_CLASS =
-    "w-full rounded-xl border border-gray-300 px-3 py-1.5 text-sm text-gray-900 focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-100"
+    "w-full rounded-xl border border-gray-300 px-3 py-1.5 text-sm text-gray-900 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary-100"
 
 type PendingAction = "BACK" | "CONFIRM" | "REJECT"
 
@@ -70,13 +70,13 @@ export function InspectionDetailPage() {
                     onClick={() => navigate("/inbox")}
                     className="mt-4 rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
                 >
-                    검수 인박스로 이동
+                    검수 목록으로 이동
                 </button>
             </div>
         )
     }
 
-    const inboxPath = "/inbox?inspectionId=" + record.inspectionId
+    const inboxPath = "/inbox"
     const missingRequired = record.flags.includes("MISSING_REQUIRED")
 
     function handleSave() {
@@ -104,7 +104,7 @@ export function InspectionDetailPage() {
     function handleMemoSubmit(memo: string) {
         if (!memoDialog) return
         resolveRecord(record!.recordId, memoDialog === "CONFIRM" ? "APPROVED" : "REJECTED", memo)
-        toast.success(memoDialog === "CONFIRM" ? "검수가 확정되었습니다." : "검수가 반려되었습니다.")
+        toast.success(memoDialog === "CONFIRM" ? "검수가 승인되었습니다." : "검수가 반려되었습니다.")
         setMemoDialog(null)
         navigate(inboxPath)
     }
@@ -117,7 +117,7 @@ export function InspectionDetailPage() {
                 className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900"
             >
                 <ArrowLeftIcon className="h-4 w-4" aria-hidden="true" />
-                검수 인박스
+                검수 목록
             </button>
 
             <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -138,6 +138,12 @@ export function InspectionDetailPage() {
                         <h2 className="text-sm font-semibold text-gray-900">관찰값 / 원본</h2>
                         <span className="rounded-md bg-gray-100 px-2 py-0.5 text-xs text-gray-500">읽기 전용</span>
                     </div>
+                    <p className="border-b border-gray-100 bg-gray-50 px-5 py-2 text-xs text-gray-600">
+                        원본 파일 ·{" "}
+                        <span className="font-medium text-gray-800">
+                            {record.fileName ? record.fileName + " / " + record.uploadRowNo + "행" : "수기 입력"}
+                        </span>
+                    </p>
                     <dl className="divide-y divide-gray-100 px-5">
                         {FIELD_ORDER.map((field) => (
                             <div key={field} className="grid grid-cols-3 gap-3 py-2.5">
@@ -184,6 +190,8 @@ export function InspectionDetailPage() {
                                         >
                                             <option value="XLSX">XLSX</option>
                                             <option value="CSV">CSV</option>
+                                            <option value="PDF">PDF</option>
+                                            <option value="IMAGE">이미지</option>
                                             <option value="MANUAL">수기</option>
                                         </select>
                                     ) : (
@@ -253,11 +261,15 @@ export function InspectionDetailPage() {
                                                 <td className="whitespace-nowrap px-5 py-2.5 text-gray-700">
                                                     {FIELD_LABEL[change.field]}
                                                 </td>
-                                                <td className="px-5 py-2.5 text-gray-500 line-through">
-                                                    {formatText(change.before)}
+                                                <td className="whitespace-nowrap px-5 py-2.5 text-gray-500 line-through">
+                                                    <span title={change.before} className="block max-w-55 truncate">
+                                                        {formatText(change.before)}
+                                                    </span>
                                                 </td>
-                                                <td className="px-5 py-2.5 font-medium text-gray-900">
-                                                    {formatText(change.after)}
+                                                <td className="whitespace-nowrap px-5 py-2.5 font-medium text-gray-900">
+                                                    <span title={change.after} className="block max-w-55 truncate">
+                                                        {formatText(change.after)}
+                                                    </span>
                                                 </td>
                                                 <td className="whitespace-nowrap px-5 py-2.5 text-gray-700">
                                                     {index === 0
@@ -283,7 +295,7 @@ export function InspectionDetailPage() {
                 <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-end gap-2">
                     {missingRequired && (
                         <p className="mr-auto text-xs text-gray-500">
-                            필수값 누락 예외가 있어 확정할 수 없습니다. 현재 검수값을 보완한 뒤 저장해 주세요.
+                            필수값 누락 예외가 있어 승인할 수 없습니다. 현재 검수값을 보완한 뒤 저장해 주세요.
                         </p>
                     )}
                     <button
@@ -308,11 +320,11 @@ export function InspectionDetailPage() {
                         className={
                             "rounded-xl px-4 py-2 text-sm font-semibold " +
                             (missingRequired
-                                ? "cursor-not-allowed border border-gray-200 bg-gray-100 text-gray-100"
-                                : "bg-blue-600 text-white hover:bg-blue-700")
+                                ? "cursor-not-allowed border border-gray-200 bg-gray-100 text-gray-400"
+                                : "bg-primary text-white hover:bg-primary-700")
                         }
                     >
-                        확정
+                        승인
                     </button>
                 </div>
             </div>
@@ -335,13 +347,13 @@ export function InspectionDetailPage() {
 
             <MemoDialog
                 open={memoDialog !== null}
-                title={memoDialog === "REJECT" ? "검수 반려" : "검수 확정"}
+                title={memoDialog === "REJECT" ? "검수 반려" : "검수 승인"}
                 description={
                     memoDialog === "REJECT"
                         ? "반려 사유를 검수 메모로 남길 수 있습니다."
-                        : "확정과 함께 남길 검수 메모를 입력할 수 있습니다."
+                        : "승인과 함께 남길 검수 메모를 입력할 수 있습니다."
                 }
-                confirmLabel={memoDialog === "REJECT" ? "반려" : "확정"}
+                confirmLabel={memoDialog === "REJECT" ? "반려" : "승인"}
                 tone={memoDialog === "REJECT" ? "danger" : "primary"}
                 onCancel={() => setMemoDialog(null)}
                 onSubmit={handleMemoSubmit}

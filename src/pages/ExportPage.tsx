@@ -19,7 +19,6 @@ interface ExportResult {
     failures: FailureItem[]
 }
 
-/** 내보내기 실패 사유 (필수값 누락 기준) */
 function failureReason(record: InspectionRecord): string {
     const missing: string[] = []
     if (record.current.normalizedItemName.trim() === "") missing.push("정규화 품목명")
@@ -170,13 +169,25 @@ export function ExportPage() {
                                     return (
                                         <tr key={record.recordId} className="border-b border-gray-100 last:border-b-0">
                                             <td className="whitespace-nowrap px-5 py-2.5 font-medium text-gray-900">
-                                                {record.current.docId}
+                                                <span title={record.current.docId} className="block max-w-45 truncate">
+                                                    {record.current.docId}
+                                                </span>
                                             </td>
                                             <td className="whitespace-nowrap px-5 py-2.5 text-gray-700">
-                                                {record.current.supplier}
+                                                <span
+                                                    title={record.current.supplier}
+                                                    className="block max-w-40 truncate"
+                                                >
+                                                    {record.current.supplier}
+                                                </span>
                                             </td>
-                                            <td className="px-5 py-2.5 text-gray-900">
-                                                {formatText(record.current.normalizedItemName)}
+                                            <td className="whitespace-nowrap px-5 py-2.5 text-gray-900">
+                                                <span
+                                                    title={record.current.normalizedItemName}
+                                                    className="block max-w-60 truncate"
+                                                >
+                                                    {formatText(record.current.normalizedItemName)}
+                                                </span>
                                             </td>
                                             <td className="whitespace-nowrap px-5 py-2.5 text-gray-700">
                                                 {formatText(record.current.spec)}

@@ -26,7 +26,20 @@ export const EMPTY_MANUAL_INPUT: ManualRecordInput = {
 }
 
 export function isManualInputFilled(value: ManualRecordInput): boolean {
-    return value.docId.trim() !== "" || value.supplier.trim() !== "" || value.rawItemName.trim() !== ""
+    return (
+        value.docId.trim() !== "" ||
+        value.supplier.trim() !== "" ||
+        value.rawItemName.trim() !== "" ||
+        value.spec.trim() !== "" ||
+        value.unit.trim() !== "" ||
+        value.priceBefore.trim() !== "" ||
+        value.priceAfter.trim() !== "" ||
+        value.effectiveDate.trim() !== ""
+    )
+}
+
+export function hasManualRequiredValue(value: ManualRecordInput): boolean {
+    return value.docId.trim() !== ""
 }
 
 const FIELD_CLASS =
@@ -47,13 +60,17 @@ export function RawRecordForm({ idPrefix, value, onChange }: RawRecordFormProps)
             <div>
                 <label className={LABEL_CLASS} htmlFor={idPrefix + "-docId"}>
                     문서ID
+                    <span className="ml-0.5 text-[11px] text-red-600" aria-hidden="true">
+                        *
+                    </span>
+                    <span className="sr-only">필수</span>
                 </label>
                 <input
                     id={idPrefix + "-docId"}
                     className={FIELD_CLASS}
                     value={value.docId}
                     onChange={(e) => set({ docId: e.target.value })}
-                    placeholder="DOC-001"
+                    placeholder="예) DOC-001"
                 />
             </div>
             <div>
@@ -76,7 +93,7 @@ export function RawRecordForm({ idPrefix, value, onChange }: RawRecordFormProps)
                     className={FIELD_CLASS}
                     value={value.supplier}
                     onChange={(e) => set({ supplier: e.target.value })}
-                    placeholder="대성식품"
+                    placeholder="예) 대성식품"
                 />
             </div>
             <div>
@@ -88,7 +105,7 @@ export function RawRecordForm({ idPrefix, value, onChange }: RawRecordFormProps)
                     className={FIELD_CLASS}
                     value={value.rawItemName}
                     onChange={(e) => set({ rawItemName: e.target.value })}
-                    placeholder="냉동 감자튀김 슈스트링"
+                    placeholder="예) 냉동 감자튀김 슈스트링"
                 />
             </div>
             <div>

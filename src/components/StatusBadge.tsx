@@ -10,7 +10,7 @@ export const RECORD_STATUS_LABEL: Record<RecordStatus, string> = {
 }
 
 const RECORD_STATUS_STYLE: Record<RecordStatus, string> = {
-    NEW: "bg-gray-100 text-gray-700 ring-gray-200",
+    NEW: "bg-[#EDE9FE] text-[#6D28D9] ring-[#DDD6FE]",
     NEEDS_CHECK: "bg-orange-50 text-orange-700 ring-orange-200",
     NEEDS_HOLD: "bg-yellow-50 text-yellow-700 ring-yellow-200",
     APPROVABLE: "bg-blue-50 text-blue-700 ring-blue-200",
