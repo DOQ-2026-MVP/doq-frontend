@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
-import { CheckCircle2Icon, FileSpreadsheetIcon, Loader2Icon, PencilLineIcon, XIcon } from "lucide-react"
+import { CheckCircle2Icon, FileSpreadsheetIcon, Loader2Icon, PencilLineIcon } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { FileDropZone } from "@/components/FileDropZone"
 import {
@@ -13,8 +13,6 @@ import {
 } from "@/components/RawRecordForm"
 import { IngestionStatusBadge } from "@/components/StatusBadge"
 import {
-    useUpload,
-    useUploadFor,
     usePostRecords,
     usePostRecordsGlobal,
     useIngestionDetail,
@@ -25,13 +23,15 @@ import {
     useDeleteRecordsAll,
     getIngestionDetail,
     useIngestionSessions,
+    postUpload,
+    postUploadFor,
 } from "@/apis/ingestion"
 import { useRunStructuring } from "@/apis/structuring"
 import { fetchInspections } from "@/apis/inspection"
-import type { IngestionStatus, ResizeStatus } from "@/shared/model/inspection"
+import type { IngestionStatus } from "@/shared/model/inspection"
 import { rememberIngestionId } from "@/shared/lib/useSelectedIngestionId"
 import { formatDateTime } from "@/shared/utils/format"
-import { needsResize, resizeFileIfNeeded } from "@/shared/utils/uploadRows"
+import { resizeFileIfNeeded } from "@/shared/utils/uploadRows"
 
 /**
  * 구조화(POST /api/structuring)는 응답을 먼저 보내고 실제 인계(Inspection 생성)는 트랜잭션 커밋 후
@@ -72,16 +72,60 @@ const writeActiveId = (id: string | null) => {
     }
 }
 
+/**
+ * 등록 현황 한 줄의 진행 상태.
+ *
+ * `SENDING` 만 화면이 아는 값이다(브라우저 → 서버 전송 중). 서버에 닿은 뒤로는 업로드의 실제
+ * 상태를 그대로 쓴다 — 파싱 진행은 현황 스트림이 밀어준다.
+ */
+type EntryStatus = "SENDING" | "PARSING" | "PARSED" | "FAILED" | "NONE"
+
+const ENTRY_STATUS_LABEL: Record<EntryStatus, string> = {
+    SENDING: "업로드 중",
+    PARSING: "처리 중",
+    PARSED: "업로드 완료",
+    FAILED: "실패",
+    NONE: "",
+}
+
+const ENTRY_STATUS_STYLE: Record<EntryStatus, string> = {
+    SENDING: "bg-primary-50 text-primary ring-primary-100",
+    PARSING: "bg-orange-50 text-orange-700 ring-orange-200",
+    PARSED: "bg-green-50 text-green-700 ring-green-200",
+    FAILED: "bg-red-50 text-red-700 ring-red-200",
+    NONE: "",
+}
+
+function EntryStatusBadge({ status }: { status: EntryStatus }) {
+    if (status === "NONE") return null
+    return (
+        <span
+            className={
+                "inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset " +
+                ENTRY_STATUS_STYLE[status]
+            }
+        >
+            {ENTRY_STATUS_LABEL[status]}
+        </span>
+    )
+}
+
 /** 등록 현황 한 줄 — 서버 현황(업로드 + 수기 행)에서 파생한다. 화면이 따로 들고 있지 않는다. */
 type DerivedEntry = {
     entryId: string
     kind: "FILE" | "MANUAL"
     label: string
     createdAt: string
-    resizeStatus: ResizeStatus
+    status: EntryStatus
+    /** 전송 진행률(0~100). SENDING 일 때만 의미가 있다. */
+    percent?: number
+    failureReason?: string | null
     uploadId?: number
     recordId?: number
 }
+
+/** 아직 서버에 닿지 않은 전송 — 응답이 오면 서버 현황이 이 자리를 대신한다. */
+type SendingUpload = { key: string; fileName: string; percent: number }
 
 type Tab = "FILE" | "MANUAL"
 
@@ -90,24 +134,6 @@ const TABS: { value: Tab; label: string }[] = [
     { value: "MANUAL", label: "수기 입력" },
 ]
 
-function ResizeStatusTag({ status }: { status: ResizeStatus }) {
-    if (status === "NONE") return null
-    if (status === "PROCESSING") {
-        return (
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-orange-50 px-2 py-0.5 text-[11px] font-medium text-orange-700">
-                <Loader2Icon className="h-3 w-3 animate-spin" aria-hidden="true" />
-                리사이징 처리 중
-            </span>
-        )
-    }
-    return (
-        <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-[11px] font-medium text-green-700">
-            <CheckCircle2Icon className="h-3 w-3" aria-hidden="true" />
-            리사이징 완료
-        </span>
-    )
-}
-
 export function IntakePage() {
     const navigate = useNavigate()
     const queryClient = useQueryClient()
@@ -115,8 +141,6 @@ export function IntakePage() {
     const sessionsQuery = useIngestionSessions()
     // 목록은 최신 세션부터 — 서버는 등록순으로 준다(그 순서에 기대는 곳이 있어 표시만 뒤집는다).
     const serverSessions = useMemo(() => [...(sessionsQuery.data ?? [])].reverse(), [sessionsQuery.data])
-    const uploadMutation = useUpload()
-    const uploadForMutation = useUploadFor()
     const postRecordsMutation = usePostRecords()
     const postRecordsGlobalMutation = usePostRecordsGlobal()
     const deleteUploadMutation = useDeleteUpload()
@@ -125,10 +149,10 @@ export function IntakePage() {
     const structuringMutation = useRunStructuring()
 
     const [tab, setTab] = useState<Tab>("FILE")
-    const [files, setFiles] = useState<File[]>([])
     const [manual, setManual] = useState<ManualRecordInput>(EMPTY_MANUAL_INPUT)
     const [error, setError] = useState("")
     const [structuring, setStructuring] = useState(false)
+    const [sending, setSending] = useState<SendingUpload[]>([])
     const [activeId, setActiveIdState] = useState<string | null>(() => readActiveId())
     const statusRef = useRef<HTMLElement>(null)
 
@@ -140,9 +164,7 @@ export function IntakePage() {
     const activeIngestionId = activeId ?? undefined
     const ingestionDetailQuery = useIngestionDetail(activeIngestionId)
     const recordListQuery = useGetRecordsFor(activeIngestionId)
-    useIngestionEvents(activeIngestionId, () => {
-        queryClient.invalidateQueries({ queryKey: ["ingestion"] })
-    })
+    useIngestionEvents(activeIngestionId)
 
     const detail = ingestionDetailQuery.data ?? null
 
@@ -156,109 +178,120 @@ export function IntakePage() {
      * 예전엔 화면이 이 목록을 메모리에 들고 있어 새로고침하면 통째로 사라졌다.
      */
     const entries = useMemo<DerivedEntry[]>(() => {
-        if (!detail) return []
-        const files: DerivedEntry[] = (detail.uploads ?? []).map((upload) => ({
+        const files: DerivedEntry[] = (detail?.uploads ?? []).map((upload) => ({
             entryId: "upload-" + upload.id,
             kind: "FILE",
             label: upload.fileName,
             createdAt: upload.createdAt ?? "",
-            // 리사이징은 업로드 **전에** 끝난다 — 서버에 있다는 건 이미 처리됐다는 뜻이다.
-            resizeStatus: needsResize(upload.fileName) ? "DONE" : "NONE",
+            status: (upload.status as EntryStatus) ?? "PARSING",
+            failureReason: upload.failureReason ?? null,
             uploadId: upload.id,
         }))
-        const manuals: DerivedEntry[] = (detail.manuals ?? []).map((record) => {
+        const manuals: DerivedEntry[] = (detail?.manuals ?? []).map((record) => {
             const parts = [record.content?.docId, record.content?.rawItemName].filter(Boolean)
             return {
                 entryId: "record-" + record.id,
                 kind: "MANUAL",
                 label: parts.length === 0 ? "수기 입력 항목" : parts.join(" · "),
                 createdAt: record.createdAt,
-                resizeStatus: "NONE",
+                status: "NONE",
                 recordId: record.id,
             }
         })
-        return [...files, ...manuals].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-    }, [detail])
+        // 아직 전송 중인 것은 서버 현황에 없다 — 맨 뒤에 붙여 진행률을 보여준다.
+        const pending: DerivedEntry[] = sending.map((item) => ({
+            entryId: "sending-" + item.key,
+            kind: "FILE",
+            label: item.fileName,
+            createdAt: "",
+            status: "SENDING",
+            percent: item.percent,
+        }))
+        return [...[...files, ...manuals].sort((a, b) => a.createdAt.localeCompare(b.createdAt)), ...pending]
+    }, [detail, sending])
 
     const activeStatus: IngestionStatus | null = structuring ? "STRUCTURING" : (detail?.status ?? null)
 
-    async function handleRegister() {
-        const hasFile = files.length > 0
-        const hasManual = isManualInputFilled(manual)
+    /**
+     * 파일은 고르는 즉시 올린다 — 등록 버튼을 한 번 더 누를 이유가 없다.
+     * 업로드 API 는 1건씩 받으므로 순서대로, 첫 건이 세션을 만들고 나머지는 그 세션에 이어붙인다.
+     */
+    async function handleFilesSelected(picked: File[]) {
+        setError("")
+        let ingestionId = detail?.status === "DRAFT" ? activeId : null
+        const failed: string[] = []
 
-        if (!hasFile && !hasManual) {
-            setError(tab === "FILE" ? "등록할 파일을 선택해 주세요." : "문서ID를 입력해 주세요.")
-            return
+        for (const file of picked) {
+            const key = file.name + "-" + file.size + "-" + Date.now() + Math.random()
+            setSending((prev) => [...prev, { key, fileName: file.name, percent: 0 }])
+            const onProgress = (percent: number) =>
+                setSending((prev) => prev.map((item) => (item.key === key ? { ...item, percent } : item)))
+
+            try {
+                const processed = await resizeFileIfNeeded(file).catch(() => file)
+                if (ingestionId === null) {
+                    const result = await postUpload(processed, onProgress)
+                    ingestionId = String(result.ingestionId)
+                    setActiveId(ingestionId)
+                } else {
+                    await postUploadFor(ingestionId, processed, onProgress)
+                }
+            } catch (e) {
+                console.error("file upload failed", file.name, e)
+                failed.push(file.name)
+            } finally {
+                setSending((prev) => prev.filter((item) => item.key !== key))
+            }
         }
 
-        if (hasManual && !hasManualRequiredValue(manual)) {
+        queryClient.invalidateQueries({ queryKey: ["ingestion"] })
+        if (failed.length > 0) toast.error(failed.length + "건을 올리지 못했습니다: " + failed.join(", "))
+        const uploaded = picked.length - failed.length
+        if (uploaded > 0) {
+            toast.success(uploaded + "건이 등록되었습니다")
+            window.setTimeout(() => statusRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 60)
+        }
+    }
+
+    /** 수기 입력 등록 — 파일과 달리 다 채운 뒤 눌러야 하므로 버튼이 남는다. */
+    async function handleRegisterManual() {
+        if (!isManualInputFilled(manual)) {
+            setError("문서ID를 입력해 주세요.")
+            return
+        }
+        if (!hasManualRequiredValue(manual)) {
             setError("문서ID를 입력해 주세요.")
             return
         }
 
-        // 이어붙일 세션이 없거나(최초) 이미 끝난 세션이면 새로 만든다 — 새 세션은 서버가 만들어 id 를 준다.
-        let ingestionId = detail?.status === "DRAFT" ? activeId : null
-        let added = 0
-        const failed: string[] = []
+        const ingestionId = detail?.status === "DRAFT" ? activeId : null
+        const rows = [
+            {
+                ...manual,
+                docId: manual.docId.trim() === "" ? "문서ID 미입력" : manual.docId,
+                supplier: manual.supplier.trim() === "" ? "공급사 미입력" : manual.supplier,
+                uploadMethod: "MANUAL" as const,
+                uploadRowNo: null,
+                fileName: null,
+            },
+        ]
 
-        // 업로드 API 는 파일 1건씩 받는다. 첫 건이 세션을 만들고 나머지는 그 세션에 이어붙인다.
-        for (const picked of files) {
-            const processed = await resizeFileIfNeeded(picked).catch(() => picked)
-            try {
-                if (ingestionId === null) {
-                    const result = await uploadMutation.mutateAsync(processed)
-                    ingestionId = String(result.ingestionId)
-                    setActiveId(ingestionId)
-                } else {
-                    await uploadForMutation.mutateAsync({ ingestionId, file: processed })
-                }
-                added += 1
-            } catch (e) {
-                console.error("file upload failed", picked.name, e)
-                failed.push(picked.name)
+        try {
+            if (ingestionId === null) {
+                const result = await postRecordsGlobalMutation.mutateAsync(rows)
+                setActiveId(String(result.ingestionId))
+            } else {
+                await postRecordsMutation.mutateAsync({ ingestionId, body: rows })
             }
+            setManual(EMPTY_MANUAL_INPUT)
+            setError("")
+            queryClient.invalidateQueries({ queryKey: ["ingestion"] })
+            toast.success("1건이 등록되었습니다")
+            window.setTimeout(() => statusRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 60)
+        } catch (e) {
+            console.error("manual upload failed", e)
+            toast.error("수기 입력 등록에 실패했습니다.")
         }
-        setFiles([])
-
-        if (hasManual) {
-            const rows = [
-                {
-                    ...manual,
-                    docId: manual.docId.trim() === "" ? "문서ID 미입력" : manual.docId,
-                    supplier: manual.supplier.trim() === "" ? "공급사 미입력" : manual.supplier,
-                    uploadMethod: "MANUAL" as const,
-                    uploadRowNo: null,
-                    fileName: null,
-                },
-            ]
-
-            try {
-                if (ingestionId === null) {
-                    const result = await postRecordsGlobalMutation.mutateAsync(rows)
-                    ingestionId = String(result.ingestionId)
-                    setActiveId(ingestionId)
-                } else {
-                    await postRecordsMutation.mutateAsync({ ingestionId, body: rows })
-                }
-                setManual(EMPTY_MANUAL_INPUT)
-                added += 1
-            } catch (e) {
-                console.error("manual upload failed", e)
-                toast.error("수기 입력 등록에 실패했습니다.")
-            }
-        }
-
-        if (failed.length > 0) {
-            toast.error(failed.length + "건을 등록하지 못했습니다: " + failed.join(", "))
-        }
-        if (added === 0) return
-
-        setError("")
-        queryClient.invalidateQueries({ queryKey: ["ingestion"] })
-        toast.success(added + "건이 등록되었습니다")
-        window.setTimeout(() => {
-            statusRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
-        }, 60)
     }
 
     /** 실제 id 로 지운다 — 파생 엔트리가 업로드/원본 행 id 를 그대로 들고 있어 내용 매칭이 필요 없다. */
@@ -358,57 +391,11 @@ export function IntakePage() {
                             <p className="mb-4 mt-1 text-xs text-gray-400">
                                 PNG, JPEG, PDF는 10MB 이하로 자동 리사이징됩니다.
                             </p>
-                            <FileDropZone onSelect={(picked) => setFiles((prev) => [...prev, ...picked])} />
+                            <FileDropZone onSelect={(picked) => void handleFilesSelected(picked)} />
                         </div>
                     ) : (
                         <div role="tabpanel" id="panel-MANUAL" aria-labelledby="tab-MANUAL">
                             <RawRecordForm idPrefix="intake" value={manual} onChange={setManual} />
-                        </div>
-                    )}
-
-                    {files.length > 0 && (
-                        <div className="mt-4 border-t border-gray-100 pt-4">
-                            <div className="flex items-center justify-between">
-                                <p className="text-xs text-gray-500">선택된 파일 {files.length}개 (등록 전)</p>
-                                <button
-                                    type="button"
-                                    onClick={() => setFiles([])}
-                                    className="text-xs font-medium text-gray-500 hover:text-gray-900"
-                                >
-                                    모두 지우기
-                                </button>
-                            </div>
-                            <ul className="mt-2 space-y-2">
-                                {files.map((picked, index) => (
-                                    <li
-                                        key={picked.name + "-" + picked.size + "-" + index}
-                                        className="flex items-center gap-3 rounded-xl border border-gray-200 bg-surface px-3 py-2"
-                                    >
-                                        <FileSpreadsheetIcon
-                                            className="h-4 w-4 shrink-0 text-primary"
-                                            aria-hidden="true"
-                                        />
-                                        <span className="min-w-0 flex-1 truncate text-sm text-gray-900">
-                                            {picked.name}
-                                        </span>
-                                        {needsResize(picked.name) && (
-                                            <span className="shrink-0 text-[11px] text-gray-500">
-                                                등록 시 10MB 이하로 리사이징
-                                            </span>
-                                        )}
-                                        <button
-                                            type="button"
-                                            onClick={() =>
-                                                setFiles((prev) => prev.filter((_, at) => at !== index))
-                                            }
-                                            className="shrink-0 rounded-lg p-1 text-gray-400 hover:bg-white hover:text-gray-600"
-                                            aria-label={picked.name + " 선택 해제"}
-                                        >
-                                            <XIcon className="h-4 w-4" aria-hidden="true" />
-                                        </button>
-                                    </li>
-                                ))}
-                            </ul>
                         </div>
                     )}
 
@@ -418,10 +405,11 @@ export function IntakePage() {
                         </p>
                     )}
 
+                    {tab === "MANUAL" && (
                     <div className="mt-5 flex justify-end border-t border-gray-100 pt-4">
                         <button
                             type="button"
-                            onClick={handleRegister}
+                            onClick={handleRegisterManual}
                             disabled={processing}
                             className={
                                 "rounded-xl px-4 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-primary-100 " +
@@ -433,6 +421,7 @@ export function IntakePage() {
                             등록
                         </button>
                     </div>
+                    )}
                 </div>
             </section>
 
@@ -525,14 +514,41 @@ export function IntakePage() {
                                 ) : (
                                     <PencilLineIcon className="h-4 w-4 shrink-0 text-gold" aria-hidden="true" />
                                 )}
-                                <span className="min-w-0 flex-1 truncate text-sm text-gray-900">
-                                    {entry.kind === "FILE" ? entry.label + " 업로드됨" : entry.label}
-                                </span>
-                                <ResizeStatusTag status={entry.resizeStatus} />
+                                <div className="min-w-0 flex-1">
+                                    <span className="block truncate text-sm text-gray-900">{entry.label}</span>
+                                    {entry.status === "SENDING" && (
+                                        <span
+                                            role="progressbar"
+                                            aria-valuenow={entry.percent ?? 0}
+                                            aria-valuemin={0}
+                                            aria-valuemax={100}
+                                            aria-label={entry.label + " 업로드 진행률"}
+                                            className="mt-1.5 block h-1 w-full overflow-hidden rounded-full bg-gray-200"
+                                        >
+                                            <span
+                                                className="block h-full rounded-full bg-primary transition-[width] duration-150"
+                                                style={{ width: (entry.percent ?? 0) + "%" }}
+                                            />
+                                        </span>
+                                    )}
+                                    {entry.status === "PARSING" && (
+                                        <span className="mt-1.5 block h-1 w-full overflow-hidden rounded-full bg-orange-100">
+                                            <span className="block h-full w-1/3 animate-pulse rounded-full bg-orange-400" />
+                                        </span>
+                                    )}
+                                    {entry.status === "FAILED" && entry.failureReason && (
+                                        <span className="mt-0.5 block truncate text-xs text-red-600">
+                                            {entry.failureReason}
+                                        </span>
+                                    )}
+                                </div>
+                                <EntryStatusBadge status={entry.status} />
                                 <span className="shrink-0 text-xs text-gray-500">
-                                    {formatDateTime(entry.createdAt)}
+                                    {entry.status === "SENDING"
+                                        ? (entry.percent ?? 0) + "%"
+                                        : formatDateTime(entry.createdAt)}
                                 </span>
-                                {activeStatus === "DRAFT" && (
+                                {activeStatus === "DRAFT" && entry.status !== "SENDING" && (
                                     <button
                                         type="button"
                                         onClick={() => handleRemoveEntry(entry)}
