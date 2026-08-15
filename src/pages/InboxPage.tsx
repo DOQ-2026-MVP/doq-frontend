@@ -17,7 +17,7 @@ import { RECORD_STATUS_LABEL, StatusBadge } from "@/components/StatusBadge"
 import type { ExceptionFlag, RecordStatus } from "@/shared/model/inspection"
 import { deriveDisplayStatus } from "@/shared/utils/structuring"
 import { formatText, formatPrice } from "@/shared/utils/format"
-import { UPLOAD_METHOD_LABEL } from "@/shared/utils/labels"
+import { UPLOAD_METHOD_LABEL, toSourceType } from "@/shared/utils/labels"
 
 const FILTERS: RecordStatus[] = ["NEW", "NEEDS_CHECK", "NEEDS_HOLD", "APPROVABLE", "APPROVED", "REJECTED"]
 
@@ -101,7 +101,7 @@ function normalizeInspectionRows(
         const flags = (Array.isArray(row.flags) ? row.flags : []) as ExceptionFlag[]
         const toValues = (values: InspectionRecordDto["current"]) => ({
             docId: values?.docId ?? "",
-            sourceType: String(values?.sourceType ?? "MANUAL").toUpperCase(),
+            sourceType: toSourceType(values?.sourceType),
             supplier: values?.supplier ?? "",
             rawItemName: values?.rawItemName ?? "",
             normalizedItemName: values?.normalizedItemName ?? values?.rawItemName ?? "",

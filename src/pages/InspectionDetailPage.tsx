@@ -20,7 +20,7 @@ import type { InspectionRecordDto } from "@/apis/inspection/types"
 import type { ExceptionFlag, InspectionValues, SourceType } from "@/shared/model/inspection"
 import { deriveDisplayStatus } from "@/shared/utils/structuring"
 import { formatPrice, formatText, formatDateTime } from "@/shared/utils/format"
-import { FIELD_LABEL, SOURCE_TYPE_LABEL } from "@/shared/utils/labels"
+import { FIELD_LABEL, SOURCE_TYPE_LABEL, toSourceType } from "@/shared/utils/labels"
 
 const FIELD_ORDER: (keyof InspectionValues)[] = [
     "docId",
@@ -57,7 +57,7 @@ type PendingAction = "BACK" | "CONFIRM" | "REJECT" | "REVIEW"
 function toValues(values: InspectionRecordDto["current"]): InspectionValues {
     return {
         docId: values?.docId ?? "",
-        sourceType: (values?.sourceType ?? "MANUAL") as SourceType,
+        sourceType: toSourceType(values?.sourceType),
         supplier: values?.supplier ?? "",
         rawItemName: values?.rawItemName ?? "",
         spec: values?.spec ?? "",

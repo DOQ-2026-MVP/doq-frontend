@@ -8,6 +8,7 @@ import { Pagination } from "@/components/Pagination"
 import { SessionPicker } from "@/components/SessionPicker"
 import { pageSliceOf, totalPagesOf } from "@/shared/lib/paging"
 import { useSelectedIngestionId } from "@/shared/lib/useSelectedIngestionId"
+import { toSourceType } from "@/shared/utils/labels"
 import { formatText, formatPrice } from "@/shared/utils/format"
 
 type Format = "JSON" | "CSV"
@@ -27,7 +28,8 @@ interface ExportResult {
 function currentOf(record: InspectionRecordDto) {
     return {
         docId: record.current?.docId ?? "",
-        sourceType: record.current?.sourceType ?? "",
+        // 화면과 내보내기가 갈리면 안 된다 — 원본유형은 여기서도 같은 규칙으로 흡수한다.
+        sourceType: toSourceType(record.current?.sourceType),
         supplier: record.current?.supplier ?? "",
         rawItemName: record.current?.rawItemName ?? "",
         normalizedItemName: record.current?.normalizedItemName ?? record.current?.rawItemName ?? "",
