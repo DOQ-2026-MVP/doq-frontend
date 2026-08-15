@@ -189,7 +189,7 @@ export function ExportPage() {
                                             const current = currentOf(record)
                                             const reason = failureReason(record)
                                             return (
-                                                <tr key={record.recordId} className="border-b border-gray-100 last:border-b-0">
+                                                <tr key={record.id} className="border-b border-gray-100 last:border-b-0">
                                                     <td className="whitespace-nowrap px-5 py-2.5 font-medium text-gray-900">
                                                         <span title={current.docId} className="block max-w-45 truncate">
                                                             {current.docId}

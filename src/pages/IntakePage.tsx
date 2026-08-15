@@ -28,7 +28,7 @@ import {
 import { useRunStructuring } from "@/apis/structuring"
 import { fetchInspections } from "@/apis/inspection"
 import { useInspection } from "@/shared/context/InspectionContext"
-import type { ResizeStatus } from "@/shared/model/inspection"
+import type { IngestionEntry, ResizeStatus } from "@/shared/model/inspection"
 import { addStructuredIngestionId } from "@/shared/lib/structuredSessions"
 import { formatDateTime } from "@/shared/utils/format"
 import { needsResize, buildRowsFromFile, resizeFileIfNeeded } from "@/shared/utils/uploadRows"
@@ -238,7 +238,7 @@ export function IntakePage() {
         }
     }
 
-    async function handleRemoveEntry(entryId: string, entry: { kind: "FILE" | "MANUAL"; label: string; rows?: any[] }) {
+    async function handleRemoveEntry(entryId: string, entry: IngestionEntry) {
         if (!activeSession) return
 
         const entryToRemove = activeSession.entries.find((item) => item.entryId === entryId)
@@ -256,18 +256,17 @@ export function IntakePage() {
                 })
             }
         } else if (Array.isArray(recordListQuery.data)) {
-            const matched = (recordListQuery.data as any[]).find((item: any) => {
-                const itemDocId = item?.docId ?? item?.doc_id ?? item?.documentId ?? item?.document_id ?? ""
-                const itemName = item?.rawItemName ?? item?.raw_item_name ?? item?.itemName ?? item?.name ?? ""
-                const candidate = [itemDocId, itemName].filter(Boolean).join("|")
-                const source = (entry.rows ?? []).map((row: any) => [row?.docId, row?.rawItemName].filter(Boolean).join("|")).filter(Boolean)
-                return source.some((value) => value === candidate)
-            })
-            const recordId = matched?.recordId ?? matched?.id ?? matched?.record_id
-            if (recordId) {
+            // 수기 행의 원문은 content(캐노니컬 camelCase 9필드) 안에 있다 — 최상위엔 docId/rawItemName이 없다.
+            const keyOf = (docId?: string | null, rawItemName?: string | null) =>
+                [docId, rawItemName].filter(Boolean).join("|")
+            const sourceKeys = (entry.rows ?? []).map((row) => keyOf(row?.docId, row?.rawItemName)).filter(Boolean)
+            const matched = recordListQuery.data.find((item) =>
+                sourceKeys.includes(keyOf(item.content?.docId, item.content?.rawItemName))
+            )
+            if (matched) {
                 await deleteRecordMutation.mutateAsync({
                     ingestionId: activeSession.ingestionId,
-                    recordId: String(recordId),
+                    recordId: String(matched.id),
                 })
             }
         }

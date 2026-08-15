@@ -70,29 +70,30 @@ function toValues(values: InspectionRecordDto["current"]): InspectionValues {
 }
 
 export function InspectionDetailPage() {
-    const { recordId } = useParams<{ recordId: string }>()
+    // URL/CRUD의 식별자는 검수 레코드 PK(dto.id)다. dto.ingestionRecordId는 인입 원본 행 FK라 API 경로에 쓰면 안 된다.
+    const { id } = useParams<{ id: string }>()
     const navigate = useNavigate()
     const location = useLocation()
     const queryClient = useQueryClient()
 
     const stateInspectionId = (location.state as { inspectionId?: string; ingestionId?: string } | null)?.inspectionId
     const detailQuery = useInspectionDetail(stateInspectionId)
-    const changelogQuery = useRecordChangelog(recordId)
+    const changelogQuery = useRecordChangelog(id)
     const patchMutation = usePatchRecord()
     const confirmMutation = useConfirmRecord()
     const rejectMutation = useRejectRecord()
 
     const dto = useMemo(
-        () => detailQuery.data?.records.find((item) => String(item.recordId) === recordId),
-        [detailQuery.data, recordId]
+        () => detailQuery.data?.records.find((item) => String(item.id) === id),
+        [detailQuery.data, id]
     )
     const ingestionId = detailQuery.data?.ingestionId
     const inspectionId = detailQuery.data?.inspectionId
 
-    // 원본 파일 미리보기용 — 검수 레코드의 recordId는 인입 원본 행의 id와 같다.
+    // 원본 파일 미리보기용 — 여기서만 dto.ingestionRecordId(인입 원본 행 id)를 쓴다. 검수 API 경로에는 dto.id를 쓴다.
     const rawRecordsQuery = useGetRecordsFor(ingestionId)
     const uploadId = useMemo(
-        () => rawRecordsQuery.data?.find((item) => item.id === dto?.recordId)?.uploadId ?? null,
+        () => rawRecordsQuery.data?.find((item) => item.id === dto?.ingestionRecordId)?.uploadId ?? null,
         [rawRecordsQuery.data, dto]
     )
 
@@ -100,7 +101,7 @@ export function InspectionDetailPage() {
         if (!dto) return undefined
         const flags = (Array.isArray(dto.flags) ? dto.flags : []) as ExceptionFlag[]
         return {
-            recordId: String(dto.recordId),
+            id: String(dto.id),
             rowNo: dto.rowNo ?? 1,
             uploadMethod: dto.uploadType ? ("FILE" as const) : ("MANUAL" as const),
             uploadRowNo: dto.rowNo ?? null,
@@ -118,14 +119,14 @@ export function InspectionDetailPage() {
     const loadedRecordId = useRef<string | undefined>(undefined)
 
     useEffect(() => {
-        if (loadedRecordId.current === recordId && draft !== null) return
+        if (loadedRecordId.current === id && draft !== null) return
         if (!record) return
-        loadedRecordId.current = recordId
+        loadedRecordId.current = id
         setDraft(record.current)
         setMemoDialog(null)
         setUnsaved(null)
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [recordId, record, draft])
+    }, [id, record, draft])
 
     const isDirty = useMemo(() => {
         if (!record || !draft) return false
@@ -162,13 +163,13 @@ export function InspectionDetailPage() {
     function invalidateInspection() {
         queryClient.invalidateQueries({ queryKey: ["inspection", stateInspectionId] })
         queryClient.invalidateQueries({ queryKey: ["inspection", "list"] })
-        queryClient.invalidateQueries({ queryKey: ["inspection", "changelog", recordId] })
+        queryClient.invalidateQueries({ queryKey: ["inspection", "changelog", id] })
     }
 
     async function handleSave() {
         if (!record || !draft) return
         try {
-            await patchMutation.mutateAsync({ recordId: record.recordId, body: draft })
+            await patchMutation.mutateAsync({ recordId: record.id, body: draft })
             invalidateInspection()
             toast.success("수정되었습니다.")
         } catch (e) {
@@ -199,14 +200,14 @@ export function InspectionDetailPage() {
 
         try {
             if (memoDialog === "CONFIRM") {
-                await confirmMutation.mutateAsync({ recordId: record.recordId, memo })
+                await confirmMutation.mutateAsync({ recordId: record.id, memo })
                 invalidateInspection()
                 toast.success("검수가 승인되었습니다.")
                 setMemoDialog(null)
                 navigate(inboxPath)
             } else {
                 // "재검토"도 실제로는 반려(reject) API로 처리한다 — 반려가 편집 잠금을 푸는 유일한 전이다.
-                await rejectMutation.mutateAsync({ recordId: record.recordId, memo })
+                await rejectMutation.mutateAsync({ recordId: record.id, memo })
                 invalidateInspection()
                 toast.success(memoDialog === "REVIEW" ? "재검토 대상으로 되돌렸습니다." : "검수가 반려되었습니다.")
                 setMemoDialog(null)

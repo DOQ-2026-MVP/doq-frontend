@@ -12,8 +12,10 @@ export type MappedRecordDto = {
 }
 
 export type InspectionRecordDto = {
+    /** 검수 레코드 PK — /inspection/records/{id} 계열 API(편집·확정·반려·변경이력)가 받는 값. */
     id: number
-    recordId: number
+    /** 인입 원본 행(ingestion_record)의 id. 원본 미리보기 조회용이며 검수 API 경로에 쓰면 안 된다. */
+    ingestionRecordId: number
     uploadType: "FILE" | "BATCH_FILE" | null
     rowNo: number | null
     status: "NEW" | "CONFIRMED" | "REJECTED"
@@ -44,7 +46,8 @@ export type FieldChangeDto = {
 
 export type InspectionChangeLogDto = {
     id: number
-    recordId: number
+    /** 이력이 붙는 검수 레코드 id — InspectionRecordDto.id와 같은 값. */
+    inspectionRecordId: number
     type: "EDIT" | "CONFIRM" | "REJECT"
     fromStatus: "NEW" | "CONFIRMED" | "REJECTED" | null
     toStatus: "NEW" | "CONFIRMED" | "REJECTED" | null

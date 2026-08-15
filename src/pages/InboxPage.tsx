@@ -49,7 +49,8 @@ const COLUMNS: Column[] = [
 ]
 
 type InboxRecord = {
-    recordId: string
+    /** 검수 레코드 PK — /inspection/records/{id} 계열 API가 받는 값 (ingestionRecordId는 인입 원본 행 FK라 여기 쓰면 안 된다). */
+    id: string
     inspectionId: string
     ingestionId: string
     rowNo: number
@@ -104,7 +105,7 @@ function normalizeInspectionRows(data: MergedInspectionRecord[] | undefined): In
         })
 
         return {
-            recordId: String(row.recordId),
+            id: String(row.id),
             inspectionId: String(row.inspectionId),
             ingestionId: String(row.ingestionId),
             rowNo: row.rowNo ?? 1,
@@ -327,12 +328,12 @@ export function InboxPage() {
                                     const normalizedChanged =
                                         record.current.normalizedItemName !== record.current.rawItemName
                                     const goToDetail = () =>
-                                        navigate("/inspection/" + record.recordId, {
+                                        navigate("/inspection/" + record.id, {
                                             state: { inspectionId: record.inspectionId, ingestionId: record.ingestionId },
                                         })
                                     return (
                                         <tr
-                                            key={record.recordId}
+                                            key={record.id}
                                             tabIndex={0}
                                             role="link"
                                             onClick={goToDetail}

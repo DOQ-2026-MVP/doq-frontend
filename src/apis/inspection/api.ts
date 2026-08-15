@@ -32,6 +32,10 @@ export const confirmAllInspections = async (inspectionIds: (number | string)[]):
     return results
 }
 
+/*
+ * 아래 레코드 단위 API의 recordId는 모두 InspectionRecordDto.id(검수 레코드 PK)다.
+ * InspectionRecordDto.ingestionRecordId(인입 원본 행 id)를 넘기면 엉뚱한 레코드에 붙거나 404가 난다.
+ */
 export const postConfirmRecord = (recordId: number | string, body: { memo?: string } = {}) =>
     unwrap(ApiHelper.post<ApiEnvelope<InspectionRecordDto>>(API_PATH.INSPECTION.RECORD_CONFIRM(recordId), body))
 

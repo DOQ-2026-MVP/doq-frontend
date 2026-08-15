@@ -24,7 +24,7 @@ export const router = createBrowserRouter(
                     element: <InboxPage />,
                 },
                 {
-                    path: "/inspection/:recordId",
+                    path: "/inspection/:id",
                     element: <InspectionDetailPage />,
                 },
                 {
