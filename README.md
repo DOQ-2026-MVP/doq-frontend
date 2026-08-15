@@ -1,27 +1,32 @@
 # DOQ Frontend
 
-React + Vite 기반 프론트엔드 서비스.
+ComfoziAI 구매 증빙 인박스 화면입니다. 인입(업로드·수기 입력) → 검수 인박스 → export 까지를
+다룹니다.
+
+| | |
+|---|---|
+| 구동 URL | <https://doq.siotman.work> (Basic Auth, 계정 별도 전달) |
+| 백엔드 | <https://github.com/DOQ-2026-MVP/doq-backend> |
+| 배포 구성 | <https://github.com/DOQ-2026-MVP/doq-deploy> |
+
+전체 스택을 한 번에 띄우려면 배포 구성 저장소를 쓰시면 됩니다. 여기는 프론트엔드 단독 실행
+방법입니다.
 
 ## 요구 사항
 
 - Node.js 22 이상
-- npm (Node.js 포함)
-
-## 패키지 설치
-
-```bash
-npm install
-```
 
 ## 실행
 
 ```bash
+npm install
 npm run dev
 ```
 
-기본적으로 Vite 개발 서버가 실행됩니다.
+→ <http://localhost:5173>
 
-- 기본 주소: `http://localhost:5173`
+API 는 같은 출처의 `/api` 로 호출합니다. 단독으로 띄우면 백엔드가 붙지 않으므로, `vite.config.ts`
+의 프록시 설정(`/api` → `http://localhost:8080`)을 켜고 백엔드를 함께 띄우셔야 합니다.
 
 ## 빌드
 
@@ -29,59 +34,35 @@ npm run dev
 npm run build
 ```
 
-- TypeScript 타입 검사를 수행한 후 프로덕션 번들을 생성합니다.
-- 결과물은 `dist/` 디렉터리에 생성됩니다.
+`dist/` 에 정적 번들이 생성됩니다. 배포는 이 결과물을 웹서버가 서빙하고, `/api` 경로는 앞단
+프록시가 백엔드로 넘깁니다.
 
-## 미리보기
+## 지원 범위
 
-```bash
-npm run preview
-```
+- 파일 업로드와 수기 입력, 세션 현황 실시간 표시
+- 검수 인박스 목록·상세에서 편집·확정·반려
+- 승인 항목 export 내려받기
 
-빌드된 결과물을 로컬에서 확인할 수 있습니다.
+## 미지원
 
-## 코드 검사
+- 사용자 계정·로그인이 없습니다. 공개 배포의 접근 제어는 앞단 Basic Auth 로만 합니다.
+- 데스크톱 화면 기준입니다. 모바일 레이아웃은 다루지 않습니다.
 
-```bash
-npm run lint
-```
+## 알려진 오류 · 한계
 
-- ESLint를 이용한 코드 스타일 및 오류 검사
-
-## 프로젝트 구조
-
-```
-src/
-├── app/        # 앱 초기화
-├── assets/     # 정적 리소스
-├── entities/   # 도메인 엔티티
-├── features/   # 기능 단위 모듈
-├── pages/      # 페이지 컴포넌트
-└── shared/     # 공통 컴포넌트 및 유틸
-```
-
-## Path Alias
-
-| Alias       | 경로            |
-| ----------- | --------------- |
-| `@`         | `src/`          |
-| `@app`      | `src/app`       |
-| `@assets`   | `src/assets`    |
-| `@entities` | `src/entities`  |
-| `@features` | `src/features`  |
-| `@pages`    | `src/pages`     |
-| `@shared`   | `src/shared`    |
-| `@package`  | `../../package` |
+- **업로드 직후에는 행이 비어 보일 수 있습니다.** 백엔드의 파싱·추출이 업로드 응답 뒤에
+  이어지므로, 현황이 갱신될 때까지 처리 중 상태로 남습니다.
+- **실시간 현황은 재연결 시 최신 스냅샷으로 갈아끼워집니다.** 끊긴 사이의 변화를 되짚어
+  보여주지 않습니다.
 
 ## 기술 스택
 
-| 항목            | 버전             |
-| --------------- | ---------------- |
-| Language        | TypeScript 6     |
-| Framework       | React 19         |
-| Build Tool      | Vite 8           |
-| Styling         | Tailwind CSS 4   |
-| Routing         | React Router 7   |
-| Data Fetching   | TanStack Query 5 |
-| Lint            | ESLint 10        |
-| Package Manager | npm              |
+| 항목 | 버전 |
+|---|---|
+| Language | TypeScript 6 |
+| Framework | React 19 |
+| Build Tool | Vite 8 |
+| Styling | Tailwind CSS 4 |
+| Routing | React Router 7 |
+| Data Fetching | TanStack Query 5 |
+| Package Manager | npm |
