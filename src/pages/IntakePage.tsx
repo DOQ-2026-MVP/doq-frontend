@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
-import { CheckCircle2Icon, FileSpreadsheetIcon, Loader2Icon, PencilLineIcon } from "lucide-react"
+import { CheckCircle2Icon, FileSpreadsheetIcon, Loader2Icon, PencilLineIcon, PlusIcon } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { FileDropZone } from "@/components/FileDropZone"
 import {
@@ -331,6 +331,17 @@ export function IntakePage() {
         }
     }
 
+    /**
+     * 새 등록 세션으로 갈아탄다 — 지금 세션은 서버에 그대로 남고(세션 목록에서 다시 열 수 있다)
+     * 이 화면만 빈 상태로 돌아간다. 다음에 올리는 파일·수기 행이 새 세션을 만든다.
+     */
+    function handleNewSession() {
+        setActiveId(null)
+        setManual(EMPTY_MANUAL_INPUT)
+        setError("")
+        toast.success("새 등록 세션을 시작합니다.")
+    }
+
     async function handleStart() {
         if (!activeId || entries.length === 0) return
         setStructuring(true)
@@ -448,6 +459,20 @@ export function IntakePage() {
 
                     {activeStatus && (
                         <div className="ml-auto flex flex-wrap items-center gap-3">
+                            <button
+                                type="button"
+                                onClick={handleNewSession}
+                                disabled={processing}
+                                className={
+                                    "inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-medium " +
+                                    (processing
+                                        ? "cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400"
+                                        : "border-gray-300 bg-white text-gray-700 hover:bg-surface")
+                                }
+                            >
+                                <PlusIcon className="h-4 w-4" aria-hidden="true" />
+                                신규 세션
+                            </button>
                             {processing && (
                                 <span className="inline-flex items-center gap-2 text-sm text-gray-700" role="status">
                                     <Loader2Icon className="h-4 w-4 animate-spin text-primary" aria-hidden="true" />
