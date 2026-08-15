@@ -3,11 +3,13 @@ import { useNavigate } from "react-router-dom"
 import { AlertTriangleIcon, CheckIcon, InboxIcon, Loader2Icon, SearchIcon } from "lucide-react"
 import { toast } from "sonner"
 import {
-    useAllInspectionRecords,
-    useConfirmAllInspections,
-    type MergedInspectionRecord,
+    useInspectionsByIngestion,
+    useConfirmInspection,
+    type InspectionRecordDto,
     type InspectionBulkConfirmResult,
 } from "@/apis/inspection"
+import { SessionPicker } from "@/components/SessionPicker"
+import { useSelectedIngestionId } from "@/shared/lib/useSelectedIngestionId"
 import { ExceptionBadge } from "@/components/ExceptionBadge"
 import { RECORD_STATUS_LABEL, StatusBadge } from "@/components/StatusBadge"
 import type { ExceptionFlag, RecordStatus } from "@/shared/model/inspection"
@@ -86,12 +88,16 @@ type InboxRecord = {
     changelog: unknown[]
 }
 
-function normalizeInspectionRows(data: MergedInspectionRecord[] | undefined): InboxRecord[] {
+function normalizeInspectionRows(
+    data: InspectionRecordDto[] | undefined,
+    ingestionId: string,
+    inspectionId: number | undefined
+): InboxRecord[] {
     const list = Array.isArray(data) ? data : []
 
     return list.map((row) => {
         const flags = (Array.isArray(row.flags) ? row.flags : []) as ExceptionFlag[]
-        const toValues = (values: MergedInspectionRecord["current"]) => ({
+        const toValues = (values: InspectionRecordDto["current"]) => ({
             docId: values?.docId ?? "",
             sourceType: String(values?.sourceType ?? "MANUAL").toUpperCase(),
             supplier: values?.supplier ?? "",
@@ -106,8 +112,8 @@ function normalizeInspectionRows(data: MergedInspectionRecord[] | undefined): In
 
         return {
             id: String(row.id),
-            inspectionId: String(row.inspectionId),
-            ingestionId: String(row.ingestionId),
+            inspectionId: String(inspectionId ?? ""),
+            ingestionId,
             rowNo: row.rowNo ?? 1,
             uploadMethod: row.uploadType ? ("FILE" as const) : ("MANUAL" as const),
             uploadRowNo: row.rowNo ?? null,
@@ -123,26 +129,28 @@ function normalizeInspectionRows(data: MergedInspectionRecord[] | undefined): In
 
 export function InboxPage() {
     const navigate = useNavigate()
-    const inspectionListQuery = useAllInspectionRecords()
-    const records = useMemo<InboxRecord[]>(() => normalizeInspectionRows(inspectionListQuery.data), [inspectionListQuery.data])
-    const loadState = inspectionListQuery.isLoading ? "loading" : inspectionListQuery.isError ? "error" : "ready"
-    const reload = () => inspectionListQuery.refetch()
+    // 검수는 등록 세션 단위다 — 대상 세션은 URL 이 들고 있고, 아래 선택기로 바꾼다.
+    const { ingestionId, select, isLoading: sessionsLoading } = useSelectedIngestionId()
+    const inspectionQuery = useInspectionsByIngestion(ingestionId ?? undefined)
+    const inspectionId = inspectionQuery.data?.inspectionId
+    const records = useMemo<InboxRecord[]>(
+        () => normalizeInspectionRows(inspectionQuery.data?.records, ingestionId ?? "", inspectionId),
+        [inspectionQuery.data, ingestionId, inspectionId]
+    )
+    const loadState =
+        sessionsLoading || inspectionQuery.isLoading ? "loading" : inspectionQuery.isError ? "error" : "ready"
+    const reload = () => inspectionQuery.refetch()
 
-    const confirmAllMutation = useConfirmAllInspections()
-    const inspectionIds = useMemo(() => {
-        const ids = new Set<number>()
-        ;(inspectionListQuery.data ?? []).forEach((record) => ids.add(record.inspectionId))
-        return Array.from(ids)
-    }, [inspectionListQuery.data])
+    const confirmMutation = useConfirmInspection()
 
     async function handleConfirmAll() {
-        if (inspectionIds.length === 0) return
+        if (inspectionId === undefined) return
         try {
-            const results: InspectionBulkConfirmResult[] = await confirmAllMutation.mutateAsync(inspectionIds)
-            const confirmed = results.reduce((sum, item) => sum + item.confirmedCount, 0)
-            const blocked = results.reduce((sum, item) => sum + item.blockedCount, 0)
+            const result: InspectionBulkConfirmResult = await confirmMutation.mutateAsync(inspectionId)
             toast.success(
-                confirmed + "건 일괄 승인되었습니다" + (blocked > 0 ? ` (필수값 누락 ${blocked}건은 제외)` : "")
+                result.confirmedCount +
+                    "건 일괄 승인되었습니다" +
+                    (result.blockedCount > 0 ? ` (필수값 누락 ${result.blockedCount}건은 제외)` : "")
             )
         } catch (e) {
             console.error("bulk confirm failed", e)
@@ -188,22 +196,25 @@ export function InboxPage() {
                 <div>
                     <h1 className="text-xl font-semibold text-gray-900">검수 목록</h1>
                     <p className="mt-1 text-sm text-gray-500">
-                        구조화된 검수 대상을 조회합니다. 행을 클릭하면 검수 상세로 이동합니다.
+                        등록 세션 단위로 검수합니다. 행을 클릭하면 검수 상세로 이동합니다.
                     </p>
                 </div>
-                <button
-                    type="button"
-                    onClick={handleConfirmAll}
-                    disabled={inspectionIds.length === 0 || confirmAllMutation.isPending}
-                    className={
-                        "shrink-0 rounded-xl px-4 py-2 text-sm font-semibold " +
-                        (inspectionIds.length === 0 || confirmAllMutation.isPending
-                            ? "cursor-not-allowed border border-gray-200 bg-gray-100 text-gray-400"
-                            : "bg-primary text-white hover:bg-primary-700")
-                    }
-                >
-                    {confirmAllMutation.isPending ? "일괄 승인 중..." : "전체 승인 (남은 신규 건)"}
-                </button>
+                <div className="flex flex-wrap items-center gap-3">
+                    <SessionPicker ingestionId={ingestionId} onSelect={select} />
+                    <button
+                        type="button"
+                        onClick={handleConfirmAll}
+                        disabled={inspectionId === undefined || confirmMutation.isPending}
+                        className={
+                            "shrink-0 rounded-xl px-4 py-2 text-sm font-semibold " +
+                            (inspectionId === undefined || confirmMutation.isPending
+                                ? "cursor-not-allowed border border-gray-200 bg-gray-100 text-gray-400"
+                                : "bg-primary text-white hover:bg-primary-700")
+                        }
+                    >
+                        {confirmMutation.isPending ? "일괄 승인 중..." : "전체 승인 (남은 신규 건)"}
+                    </button>
+                </div>
             </div>
 
             <div className="mt-6 rounded-xl border border-gray-200 bg-white shadow-sm">
@@ -328,9 +339,7 @@ export function InboxPage() {
                                     const normalizedChanged =
                                         record.current.normalizedItemName !== record.current.rawItemName
                                     const goToDetail = () =>
-                                        navigate("/inspection/" + record.id, {
-                                            state: { inspectionId: record.inspectionId, ingestionId: record.ingestionId },
-                                        })
+                                        navigate("/inspection/" + record.id + "?ingestionId=" + record.ingestionId)
                                     return (
                                         <tr
                                             key={record.id}

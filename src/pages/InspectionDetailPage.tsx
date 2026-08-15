@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { useLocation, useNavigate, useParams } from "react-router-dom"
+import { useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { useQueryClient } from "@tanstack/react-query"
 import { ArrowLeftIcon, Loader2Icon } from "lucide-react"
 import { toast } from "sonner"
@@ -9,7 +9,7 @@ import { SourcePreview } from "@/components/SourcePreview"
 import { StatusBadge } from "@/components/StatusBadge"
 import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog"
 import {
-    useInspectionDetail,
+    useInspectionsByIngestion,
     useRecordChangelog,
     usePatchRecord,
     useConfirmRecord,
@@ -72,12 +72,13 @@ function toValues(values: InspectionRecordDto["current"]): InspectionValues {
 export function InspectionDetailPage() {
     // URL/CRUD의 식별자는 검수 레코드 PK(dto.id)다. dto.ingestionRecordId는 인입 원본 행 FK라 API 경로에 쓰면 안 된다.
     const { id } = useParams<{ id: string }>()
+    const [searchParams] = useSearchParams()
     const navigate = useNavigate()
-    const location = useLocation()
     const queryClient = useQueryClient()
 
-    const stateInspectionId = (location.state as { inspectionId?: string; ingestionId?: string } | null)?.inspectionId
-    const detailQuery = useInspectionDetail(stateInspectionId)
+    // 어느 세션의 검수인지는 URL 이 들고 있다 — 예전엔 목록에서 넘긴 location.state 라 새로고침하면 잃었다.
+    const sessionIngestionId = searchParams.get("ingestionId") ?? undefined
+    const detailQuery = useInspectionsByIngestion(sessionIngestionId)
     const changelogQuery = useRecordChangelog(id)
     const patchMutation = usePatchRecord()
     const confirmMutation = useConfirmRecord()
@@ -157,11 +158,11 @@ export function InspectionDetailPage() {
         )
     }
 
-    const inboxPath = "/inbox"
+    const inboxPath = sessionIngestionId ? "/inbox?ingestionId=" + sessionIngestionId : "/inbox"
     const missingRequired = record.flags.includes("MISSING_REQUIRED")
 
     function invalidateInspection() {
-        queryClient.invalidateQueries({ queryKey: ["inspection", stateInspectionId] })
+        queryClient.invalidateQueries({ queryKey: ["inspection", "list", sessionIngestionId] })
         queryClient.invalidateQueries({ queryKey: ["inspection", "list"] })
         queryClient.invalidateQueries({ queryKey: ["inspection", "changelog", id] })
     }

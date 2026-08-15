@@ -4,7 +4,8 @@ import { CheckCircle2Icon, DownloadIcon, Loader2Icon, XCircleIcon } from "lucide
 import { toast } from "sonner"
 import { fetchInspections, fetchExportJson, fetchExportCsvBlob } from "@/apis/inspection"
 import type { InspectionRecordDto } from "@/apis/inspection/types"
-import { useStructuredIngestionIds } from "@/apis/ingestion"
+import { SessionPicker } from "@/components/SessionPicker"
+import { useSelectedIngestionId } from "@/shared/lib/useSelectedIngestionId"
 import { formatText, formatPrice } from "@/shared/utils/format"
 
 type Format = "JSON" | "CSV"
@@ -57,13 +58,13 @@ function download(fileName: string, content: BlobPart, mime: string) {
 }
 
 export function ExportPage() {
-    const { ids: ingestionIds } = useStructuredIngestionIds()
-    const latestIngestionId = ingestionIds[ingestionIds.length - 1]
+    // 내보내기도 등록 세션 단위다 — 대상 세션은 URL 이 들고 있다(검수 목록과 같은 선택기).
+    const { ingestionId, select } = useSelectedIngestionId()
 
     const detailQuery = useQuery({
-        queryKey: ["inspection", "list", latestIngestionId],
-        queryFn: () => fetchInspections(latestIngestionId),
-        enabled: !!latestIngestionId,
+        queryKey: ["inspection", "list", ingestionId],
+        queryFn: () => fetchInspections(ingestionId as string),
+        enabled: !!ingestionId,
     })
     const inspectionId = detailQuery.data?.inspectionId
     const records = detailQuery.data?.records ?? []
@@ -107,12 +108,17 @@ export function ExportPage() {
 
     return (
         <div className="mx-auto w-full max-w-5xl">
-            <h1 className="text-xl font-semibold text-gray-900">내보내기</h1>
-            <p className="mt-1 text-sm text-gray-500">
-                가장 최근 검수 세션의 승인된 검수값만 내보냅니다. 다운로드 전에 대상 데이터를 확인할 수 있습니다.
-            </p>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                    <h1 className="text-xl font-semibold text-gray-900">내보내기</h1>
+                    <p className="mt-1 text-sm text-gray-500">
+                        선택한 등록 세션의 승인된 검수값만 내보냅니다. 다운로드 전에 대상 데이터를 확인할 수 있습니다.
+                    </p>
+                </div>
+                <SessionPicker ingestionId={ingestionId} onSelect={select} />
+            </div>
 
-            {!latestIngestionId ? (
+            {!ingestionId ? (
                 <section className="mt-6 rounded-xl border border-gray-200 bg-white p-10 text-center shadow-sm">
                     <p className="text-sm text-gray-500">아직 구조화된 검수 세션이 없습니다.</p>
                 </section>

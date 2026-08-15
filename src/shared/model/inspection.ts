@@ -30,26 +30,6 @@ export type RawRecordInput = Omit<RawRecord, "id" | "rowNo">
 
 export type ResizeStatus = "NONE" | "PROCESSING" | "DONE"
 
-export interface IngestionEntry {
-    entryId: string
-    kind: UploadMethod
-    label: string
-    createdAt: string
-    resizeStatus: ResizeStatus
-    rows: RawRecordInput[]
-}
-
-export interface IngestionSession {
-    ingestionId: string
-    status: IngestionStatus
-    createdAt: string
-    entries: IngestionEntry[]
-    records: RawRecord[]
-    inspectionId: string | null
-    // true for client-only sessions not (yet) persisted on server
-    isLocal?: boolean
-}
-
 export interface InspectionValues {
     docId: string
     sourceType: SourceType

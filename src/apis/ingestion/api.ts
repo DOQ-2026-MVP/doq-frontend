@@ -90,7 +90,7 @@ export const deleteRecord = (ingestionId: number | string, recordId: number | st
 // SSE events are consumed by EventSource directly in hook below
 
 export function useIngestionDetail(ingestionId?: number | string) {
-    return (useQuery as any)({
+    return useQuery({
         queryKey: ["ingestion", ingestionId],
         queryFn: () => getIngestionDetail(ingestionId as string),
         enabled: !!ingestionId,

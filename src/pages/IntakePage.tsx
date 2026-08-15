@@ -1,4 +1,4 @@
-import { useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
 import { CheckCircle2Icon, FileSpreadsheetIcon, Loader2Icon, PencilLineIcon, XIcon } from "lucide-react"
@@ -28,10 +28,9 @@ import {
 } from "@/apis/ingestion"
 import { useRunStructuring } from "@/apis/structuring"
 import { fetchInspections } from "@/apis/inspection"
-import { useInspection } from "@/shared/context/InspectionContext"
-import type { IngestionEntry, ResizeStatus } from "@/shared/model/inspection"
+import type { IngestionStatus, ResizeStatus } from "@/shared/model/inspection"
 import { formatDateTime } from "@/shared/utils/format"
-import { needsResize, buildRowsFromFile, resizeFileIfNeeded } from "@/shared/utils/uploadRows"
+import { needsResize, resizeFileIfNeeded } from "@/shared/utils/uploadRows"
 
 /**
  * 구조화(POST /api/structuring)는 응답을 먼저 보내고 실제 인계(Inspection 생성)는 트랜잭션 커밋 후
@@ -47,6 +46,40 @@ async function waitForStructured(ingestionId: string, timeoutMs = 20000, interva
         await new Promise((resolve) => window.setTimeout(resolve, intervalMs))
     }
     throw new Error("구조화 대기 시간 초과")
+}
+
+/**
+ * 브라우저가 기억하는 유일한 세션 정보 — "이 탭이 어느 세션을 작업 중인가".
+ * 세션의 내용(업로드·수기 행·상태)은 전부 서버에서 받는다.
+ */
+const ACTIVE_SESSION_KEY = "doq.activeIngestionId"
+
+const readActiveId = (): string | null => {
+    try {
+        return window.localStorage.getItem(ACTIVE_SESSION_KEY)
+    } catch {
+        return null
+    }
+}
+
+const writeActiveId = (id: string | null) => {
+    try {
+        if (id === null) window.localStorage.removeItem(ACTIVE_SESSION_KEY)
+        else window.localStorage.setItem(ACTIVE_SESSION_KEY, id)
+    } catch {
+        // 저장 실패는 치명적이지 않다 — 이번 세션 동안만 기억하지 못할 뿐이다.
+    }
+}
+
+/** 등록 현황 한 줄 — 서버 현황(업로드 + 수기 행)에서 파생한다. 화면이 따로 들고 있지 않는다. */
+type DerivedEntry = {
+    entryId: string
+    kind: "FILE" | "MANUAL"
+    label: string
+    createdAt: string
+    resizeStatus: ResizeStatus
+    uploadId?: number
+    recordId?: number
 }
 
 type Tab = "FILE" | "MANUAL"
@@ -80,8 +113,6 @@ export function IntakePage() {
     // 세션 목록의 출처는 서버다 — 브라우저에 기억해 두면 새로고침·다른 기기에서 통째로 사라진다.
     const sessionsQuery = useIngestionSessions()
     const serverSessions = sessionsQuery.data ?? []
-    const { createSession, addEntry, removeEntry, getSession, linkSession, setSessionStatus, markStructured } =
-        useInspection()
     const uploadMutation = useUpload()
     const uploadForMutation = useUploadFor()
     const postRecordsMutation = usePostRecords()
@@ -95,26 +126,59 @@ export function IntakePage() {
     const [file, setFile] = useState<File | null>(null)
     const [manual, setManual] = useState<ManualRecordInput>(EMPTY_MANUAL_INPUT)
     const [error, setError] = useState("")
-    const [activeId, setActiveId] = useState<string | null>(null)
+    const [structuring, setStructuring] = useState(false)
+    const [activeId, setActiveIdState] = useState<string | null>(() => readActiveId())
     const statusRef = useRef<HTMLElement>(null)
 
+    const setActiveId = useCallback((id: string | null) => {
+        setActiveIdState(id)
+        writeActiveId(id)
+    }, [])
+
     const activeIngestionId = activeId ?? undefined
-    const activeSession = activeId ? getSession(activeId) : undefined
-    const serverIngestionId = activeSession && !activeSession.isLocal ? activeIngestionId : undefined
-    const ingestionDetailQuery = useIngestionDetail(serverIngestionId)
-    const recordListQuery = useGetRecordsFor(serverIngestionId)
-    useIngestionEvents(serverIngestionId, () => {
+    const ingestionDetailQuery = useIngestionDetail(activeIngestionId)
+    const recordListQuery = useGetRecordsFor(activeIngestionId)
+    useIngestionEvents(activeIngestionId, () => {
         queryClient.invalidateQueries({ queryKey: ["ingestion"] })
     })
 
-    function ensureSession(): string {
-        if (activeSession && activeSession.status === "DRAFT") {
-            return activeSession.ingestionId
-        }
-        const session = createSession()
-        setActiveId(session.ingestionId)
-        return session.ingestionId
-    }
+    const detail = ingestionDetailQuery.data ?? null
+
+    // 기억해 둔 세션이 서버에 없으면(삭제됨) 붙들고 있지 않는다 — 빈 화면으로 남는 것보다 낫다.
+    useEffect(() => {
+        if (activeId && ingestionDetailQuery.isSuccess && detail === null) setActiveId(null)
+    }, [activeId, ingestionDetailQuery.isSuccess, detail, setActiveId])
+
+    /**
+     * 등록 현황 = 서버 현황. 업로드 1건 = 파일 항목, 수기 행 1건 = 수기 항목이고 등록 시각순으로 섞는다.
+     * 예전엔 화면이 이 목록을 메모리에 들고 있어 새로고침하면 통째로 사라졌다.
+     */
+    const entries = useMemo<DerivedEntry[]>(() => {
+        if (!detail) return []
+        const files: DerivedEntry[] = (detail.uploads ?? []).map((upload) => ({
+            entryId: "upload-" + upload.id,
+            kind: "FILE",
+            label: upload.fileName,
+            createdAt: upload.createdAt ?? "",
+            // 리사이징은 업로드 **전에** 끝난다 — 서버에 있다는 건 이미 처리됐다는 뜻이다.
+            resizeStatus: needsResize(upload.fileName) ? "DONE" : "NONE",
+            uploadId: upload.id,
+        }))
+        const manuals: DerivedEntry[] = (detail.manuals ?? []).map((record) => {
+            const parts = [record.content?.docId, record.content?.rawItemName].filter(Boolean)
+            return {
+                entryId: "record-" + record.id,
+                kind: "MANUAL",
+                label: parts.length === 0 ? "수기 입력 항목" : parts.join(" · "),
+                createdAt: record.createdAt,
+                resizeStatus: "NONE",
+                recordId: record.id,
+            }
+        })
+        return [...files, ...manuals].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    }, [detail])
+
+    const activeStatus: IngestionStatus | null = structuring ? "STRUCTURING" : (detail?.status ?? null)
 
     async function handleRegister() {
         const hasFile = file !== null
@@ -130,58 +194,29 @@ export function IntakePage() {
             return
         }
 
-        let ingestionId = ensureSession()
-        let isLocalSession = getSession(ingestionId)?.isLocal ?? true
+        // 이어붙일 세션이 없거나(최초) 이미 끝난 세션이면 새로 만든다 — 새 세션은 서버가 만들어 id 를 준다.
+        let ingestionId = detail?.status === "DRAFT" ? activeId : null
         let added = 0
 
         if (file) {
+            const processed = await resizeFileIfNeeded(file).catch(() => file)
             try {
-                const processed = await resizeFileIfNeeded(file)
-                const rows = buildRowsFromFile(processed)
-                if (isLocalSession) {
-                    // no server ingestion yet — upload to global endpoint (creates it) and link the id back
+                if (ingestionId === null) {
                     const result = await uploadMutation.mutateAsync(processed)
-                    linkSession(ingestionId, String(result.ingestionId))
                     ingestionId = String(result.ingestionId)
-                    isLocalSession = false
                     setActiveId(ingestionId)
                 } else {
                     await uploadForMutation.mutateAsync({ ingestionId, file: processed })
                 }
-                addEntry(ingestionId, {
-                    kind: "FILE",
-                    label: processed.name,
-                    needsResize: needsResize(processed.name),
-                    rows,
-                })
+                added += 1
             } catch (e) {
-                const fallbackRows = buildRowsFromFile(file)
-                try {
-                    if (isLocalSession) {
-                        const result = await uploadMutation.mutateAsync(file)
-                        linkSession(ingestionId, String(result.ingestionId))
-                        ingestionId = String(result.ingestionId)
-                        isLocalSession = false
-                        setActiveId(ingestionId)
-                    } else {
-                        await uploadForMutation.mutateAsync({ ingestionId, file })
-                    }
-                } catch (uploadError) {
-                    console.error("file upload failed", uploadError)
-                }
-                addEntry(ingestionId, {
-                    kind: "FILE",
-                    label: file.name,
-                    needsResize: needsResize(file.name),
-                    rows: fallbackRows,
-                })
+                console.error("file upload failed", e)
+                toast.error("파일 업로드에 실패했습니다.")
             }
             setFile(null)
-            added += 1
         }
 
         if (hasManual) {
-            const labelParts = [manual.docId.trim(), manual.rawItemName.trim()].filter((part) => part !== "")
             const rows = [
                 {
                     ...manual,
@@ -194,97 +229,81 @@ export function IntakePage() {
             ]
 
             try {
-                if (isLocalSession) {
+                if (ingestionId === null) {
                     const result = await postRecordsGlobalMutation.mutateAsync(rows)
-                    linkSession(ingestionId, String(result.ingestionId))
                     ingestionId = String(result.ingestionId)
-                    isLocalSession = false
                     setActiveId(ingestionId)
                 } else {
                     await postRecordsMutation.mutateAsync({ ingestionId, body: rows })
                 }
+                setManual(EMPTY_MANUAL_INPUT)
+                added += 1
             } catch (e) {
                 console.error("manual upload failed", e)
+                toast.error("수기 입력 등록에 실패했습니다.")
             }
-
-            addEntry(ingestionId, {
-                kind: "MANUAL",
-                label: labelParts.length === 0 ? "수기 입력 항목" : labelParts.join(" · "),
-                rows,
-            })
-            setManual(EMPTY_MANUAL_INPUT)
-            added += 1
         }
 
+        if (added === 0) return
+
         setError("")
+        queryClient.invalidateQueries({ queryKey: ["ingestion"] })
         toast.success(added + "건이 등록되었습니다")
         window.setTimeout(() => {
             statusRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
         }, 60)
     }
 
-    async function handleStart() {
-        if (!activeSession || activeSession.entries.length === 0 || activeSession.isLocal) return
-        const ingestionId = activeSession.ingestionId
-        setSessionStatus(ingestionId, "STRUCTURING")
+    /** 실제 id 로 지운다 — 파생 엔트리가 업로드/원본 행 id 를 그대로 들고 있어 내용 매칭이 필요 없다. */
+    async function handleRemoveEntry(entry: DerivedEntry) {
+        if (!activeId) return
         try {
-            await structuringMutation.mutateAsync(ingestionId)
-            await waitForStructured(ingestionId)
-            const detail = await fetchInspections(ingestionId)
-            markStructured(ingestionId, String(detail.inspectionId))
-            queryClient.invalidateQueries({ queryKey: ["inspection"] })
-        } catch (e) {
-            console.error("structuring failed", e)
-            setSessionStatus(ingestionId, "DRAFT")
-            toast.error("검수 대상으로 전환하지 못했습니다.")
-        }
-    }
-
-    async function handleRemoveEntry(entryId: string, entry: IngestionEntry) {
-        if (!activeSession) return
-
-        const entryToRemove = activeSession.entries.find((item) => item.entryId === entryId)
-        if (!entryToRemove) return
-
-        if (entry.kind === "FILE") {
-            const upload = ingestionDetailQuery.data?.uploads?.find(
-                (item: { fileName?: string }) =>
-                    item.fileName === entry.label || item.fileName === entryToRemove.label
-            )
-            if (upload?.id) {
+            if (entry.uploadId !== undefined) {
                 await deleteUploadMutation.mutateAsync({
-                    ingestionId: activeSession.ingestionId,
-                    uploadId: String(upload.id),
+                    ingestionId: activeId,
+                    uploadId: String(entry.uploadId),
                 })
-            }
-        } else if (Array.isArray(recordListQuery.data)) {
-            // 수기 행의 원문은 content(캐노니컬 camelCase 9필드) 안에 있다 — 최상위엔 docId/rawItemName이 없다.
-            const keyOf = (docId?: string | null, rawItemName?: string | null) =>
-                [docId, rawItemName].filter(Boolean).join("|")
-            const sourceKeys = (entry.rows ?? []).map((row) => keyOf(row?.docId, row?.rawItemName)).filter(Boolean)
-            const matched = recordListQuery.data.find((item) =>
-                sourceKeys.includes(keyOf(item.content?.docId, item.content?.rawItemName))
-            )
-            if (matched) {
+            } else if (entry.recordId !== undefined) {
                 await deleteRecordMutation.mutateAsync({
-                    ingestionId: activeSession.ingestionId,
-                    recordId: String(matched.id),
+                    ingestionId: activeId,
+                    recordId: String(entry.recordId),
                 })
             }
+        } catch (e) {
+            console.error("remove entry failed", e)
+            toast.error("항목을 삭제하지 못했습니다.")
         }
-
-        removeEntry(activeSession.ingestionId, entryId)
     }
 
     async function handleClearAll() {
-        if (!activeSession) return
-        await deleteAllRecordsMutation.mutateAsync(activeSession.ingestionId)
-        activeSession.entries.forEach((entry) => removeEntry(activeSession.ingestionId, entry.entryId))
+        if (!activeId) return
+        try {
+            await deleteAllRecordsMutation.mutateAsync(activeId)
+        } catch (e) {
+            console.error("clear all failed", e)
+            toast.error("전체 삭제에 실패했습니다.")
+        }
     }
 
-    const processing = activeSession?.status === "STRUCTURING"
-    const structured = activeSession?.status === "STRUCTURED"
-    const serverUploadCount = ingestionDetailQuery.data?.uploads?.length ?? 0
+    async function handleStart() {
+        if (!activeId || entries.length === 0) return
+        setStructuring(true)
+        try {
+            await structuringMutation.mutateAsync(activeId)
+            await waitForStructured(activeId)
+            await fetchInspections(activeId)
+            queryClient.invalidateQueries({ queryKey: ["inspection"] })
+            queryClient.invalidateQueries({ queryKey: ["ingestion"] })
+        } catch (e) {
+            console.error("structuring failed", e)
+            toast.error("검수 대상으로 전환하지 못했습니다.")
+        } finally {
+            setStructuring(false)
+        }
+    }
+
+    const processing = activeStatus === "STRUCTURING"
+    const structured = activeStatus === "STRUCTURED"
     const serverRecordCount = Array.isArray(recordListQuery.data) ? recordListQuery.data.length : 0
 
     return (
@@ -393,21 +412,21 @@ export function IntakePage() {
                 <div className="flex flex-wrap items-center gap-3 border-b border-gray-200 px-5 py-4">
                     <h2 id="session-title" className="text-sm font-semibold text-gray-900">
                         등록 현황
-                        {activeSession && (
+                        {activeId && (
                             <span className="font-normal text-gray-500">
-                                {" | 등록 세션 #" + activeSession.ingestionId}
+                                {" | 등록 세션 #" + activeId}
                             </span>
                         )}
                     </h2>
-                    {activeSession && <IngestionStatusBadge status={activeSession.status} />}
-                    {activeSession && (
+                    {activeStatus && <IngestionStatusBadge status={activeStatus} />}
+                    {activeStatus && (
                         <span className="text-sm text-gray-500">
-                            항목 {Math.max(activeSession.entries.length, serverUploadCount)}개
+                            항목 {entries.length}개
                             {serverRecordCount > 0 && ` · 서버 레코드 ${serverRecordCount}건`}
                         </span>
                     )}
 
-                    {activeSession && (
+                    {activeStatus && (
                         <div className="ml-auto flex flex-wrap items-center gap-3">
                             {processing && (
                                 <span className="inline-flex items-center gap-2 text-sm text-gray-700" role="status">
@@ -421,9 +440,9 @@ export function IntakePage() {
                                     검수 목록에 반영 완료
                                 </span>
                             )}
-                            {activeSession.status === "DRAFT" ? (
+                            {activeStatus === "DRAFT" ? (
                                 <>
-                                    {activeSession.entries.length > 0 && (
+                                    {entries.length > 0 && (
                                         <button
                                             type="button"
                                             onClick={handleClearAll}
@@ -435,10 +454,10 @@ export function IntakePage() {
                                     <button
                                         type="button"
                                         onClick={handleStart}
-                                        disabled={activeSession.entries.length === 0}
+                                        disabled={entries.length === 0}
                                         className={
                                             "rounded-xl px-4 py-2 text-sm font-semibold " +
-                                            (activeSession.entries.length === 0
+                                            (entries.length === 0
                                                 ? "cursor-not-allowed bg-gray-100 text-gray-400"
                                                 : "bg-primary text-white hover:bg-primary-700")
                                         }
@@ -461,13 +480,13 @@ export function IntakePage() {
                     )}
                 </div>
 
-                {!activeSession || activeSession.entries.length === 0 ? (
+                {entries.length === 0 ? (
                     <p className="px-5 py-8 text-center text-sm text-gray-500">
                         등록된 항목이 없습니다. 파일 또는 수기 입력을 등록해 주세요.
                     </p>
                 ) : (
                     <ul className="divide-y divide-gray-100">
-                        {activeSession.entries.map((entry) => (
+                        {entries.map((entry) => (
                             <li key={entry.entryId} className="flex items-center gap-3 px-5 py-3">
                                 {entry.kind === "FILE" ? (
                                     <FileSpreadsheetIcon className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
@@ -481,10 +500,10 @@ export function IntakePage() {
                                 <span className="shrink-0 text-xs text-gray-500">
                                     {formatDateTime(entry.createdAt)}
                                 </span>
-                                {activeSession.status === "DRAFT" && (
+                                {activeStatus === "DRAFT" && (
                                     <button
                                         type="button"
-                                        onClick={() => handleRemoveEntry(entry.entryId, entry)}
+                                        onClick={() => handleRemoveEntry(entry)}
                                         className="shrink-0 rounded-lg border border-gray-300 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-surface"
                                     >
                                         취소
@@ -533,8 +552,22 @@ export function IntakePage() {
                                     </td>
                                 </tr>
                             ) : (
-                                serverSessions.map((session) => (
-                                    <tr key={session.ingestionId} className="border-b border-gray-100 last:border-b-0">
+                                serverSessions.map((session) => {
+                                    // 구조화가 끝난 세션만 검수 대상이 있다 — 그 세션의 검수 목록으로 바로 보낸다.
+                                    const openable = session.status === "STRUCTURED"
+                                    return (
+                                    <tr
+                                        key={session.ingestionId}
+                                        className={
+                                            "border-b border-gray-100 last:border-b-0 " +
+                                            (openable ? "cursor-pointer hover:bg-primary-50/60" : "")
+                                        }
+                                        onClick={
+                                            openable
+                                                ? () => navigate("/inbox?ingestionId=" + session.ingestionId)
+                                                : undefined
+                                        }
+                                    >
                                         <td className="whitespace-nowrap px-5 py-3 font-medium text-gray-900">
                                             등록 세션 #{session.ingestionId}
                                         </td>
@@ -548,7 +581,8 @@ export function IntakePage() {
                                             {formatDateTime(session.createdAt)}
                                         </td>
                                     </tr>
-                                ))
+                                    )
+                                })
                             )}
                         </tbody>
                     </table>
