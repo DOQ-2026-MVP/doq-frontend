@@ -29,6 +29,7 @@ import {
 import { useRunStructuring } from "@/apis/structuring"
 import { fetchInspections } from "@/apis/inspection"
 import type { IngestionStatus, ResizeStatus } from "@/shared/model/inspection"
+import { rememberIngestionId } from "@/shared/lib/useSelectedIngestionId"
 import { formatDateTime } from "@/shared/utils/format"
 import { needsResize, resizeFileIfNeeded } from "@/shared/utils/uploadRows"
 
@@ -298,6 +299,8 @@ export function IntakePage() {
             await structuringMutation.mutateAsync(activeId)
             await waitForStructured(activeId)
             await fetchInspections(activeId)
+            // 방금 검수로 넘긴 세션을 검수 목록·내보내기가 이어받게 한다.
+            rememberIngestionId(activeId)
             queryClient.invalidateQueries({ queryKey: ["inspection"] })
             queryClient.invalidateQueries({ queryKey: ["ingestion"] })
         } catch (e) {
@@ -498,7 +501,7 @@ export function IntakePage() {
                                 structured && (
                                     <button
                                         type="button"
-                                        onClick={() => navigate("/inbox")}
+                                        onClick={() => navigate("/inbox?ingestionId=" + activeId)}
                                         className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-100"
                                     >
                                         검수 목록으로 이동
