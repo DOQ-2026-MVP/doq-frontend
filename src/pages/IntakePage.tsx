@@ -24,12 +24,12 @@ import {
     useDeleteRecord,
     useDeleteRecordsAll,
     getIngestionDetail,
+    useIngestionSessions,
 } from "@/apis/ingestion"
 import { useRunStructuring } from "@/apis/structuring"
 import { fetchInspections } from "@/apis/inspection"
 import { useInspection } from "@/shared/context/InspectionContext"
 import type { IngestionEntry, ResizeStatus } from "@/shared/model/inspection"
-import { addStructuredIngestionId } from "@/shared/lib/structuredSessions"
 import { formatDateTime } from "@/shared/utils/format"
 import { needsResize, buildRowsFromFile, resizeFileIfNeeded } from "@/shared/utils/uploadRows"
 
@@ -77,7 +77,10 @@ function ResizeStatusTag({ status }: { status: ResizeStatus }) {
 export function IntakePage() {
     const navigate = useNavigate()
     const queryClient = useQueryClient()
-    const { sessions, createSession, addEntry, removeEntry, getSession, linkSession, setSessionStatus, markStructured } =
+    // 세션 목록의 출처는 서버다 — 브라우저에 기억해 두면 새로고침·다른 기기에서 통째로 사라진다.
+    const sessionsQuery = useIngestionSessions()
+    const serverSessions = sessionsQuery.data ?? []
+    const { createSession, addEntry, removeEntry, getSession, linkSession, setSessionStatus, markStructured } =
         useInspection()
     const uploadMutation = useUpload()
     const uploadForMutation = useUploadFor()
@@ -228,7 +231,6 @@ export function IntakePage() {
             await structuringMutation.mutateAsync(ingestionId)
             await waitForStructured(ingestionId)
             const detail = await fetchInspections(ingestionId)
-            addStructuredIngestionId(ingestionId)
             markStructured(ingestionId, String(detail.inspectionId))
             queryClient.invalidateQueries({ queryKey: ["inspection"] })
         } catch (e) {
@@ -520,22 +522,34 @@ export function IntakePage() {
                             </tr>
                         </thead>
                         <tbody>
-                            {sessions.map((session) => (
-                                <tr key={session.ingestionId} className="border-b border-gray-100 last:border-b-0">
-                                    <td className="whitespace-nowrap px-5 py-3 font-medium text-gray-900">
-                                        등록 세션 #{session.ingestionId}
-                                    </td>
-                                    <td className="whitespace-nowrap px-5 py-3">
-                                        <IngestionStatusBadge status={session.status} />
-                                    </td>
-                                    <td className="whitespace-nowrap px-5 py-3 text-gray-700">
-                                        {session.entries.length}개
-                                    </td>
-                                    <td className="whitespace-nowrap px-5 py-3 text-gray-500">
-                                        {formatDateTime(session.createdAt)}
+                            {serverSessions.length === 0 ? (
+                                <tr>
+                                    <td colSpan={4} className="px-5 py-8 text-center text-sm text-gray-500">
+                                        {sessionsQuery.isLoading
+                                            ? "불러오는 중입니다."
+                                            : sessionsQuery.isError
+                                              ? "세션 목록을 불러오지 못했습니다."
+                                              : "등록된 세션이 없습니다."}
                                     </td>
                                 </tr>
-                            ))}
+                            ) : (
+                                serverSessions.map((session) => (
+                                    <tr key={session.ingestionId} className="border-b border-gray-100 last:border-b-0">
+                                        <td className="whitespace-nowrap px-5 py-3 font-medium text-gray-900">
+                                            등록 세션 #{session.ingestionId}
+                                        </td>
+                                        <td className="whitespace-nowrap px-5 py-3">
+                                            <IngestionStatusBadge status={session.status} />
+                                        </td>
+                                        <td className="whitespace-nowrap px-5 py-3 text-gray-700">
+                                            {session.recordCount}개
+                                        </td>
+                                        <td className="whitespace-nowrap px-5 py-3 text-gray-500">
+                                            {formatDateTime(session.createdAt)}
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
                         </tbody>
                     </table>
                 </div>

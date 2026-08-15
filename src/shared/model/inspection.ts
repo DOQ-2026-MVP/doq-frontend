@@ -2,7 +2,8 @@ export type SourceType = "XLSX" | "CSV" | "PDF" | "IMAGE" | "MANUAL"
 
 export type UploadMethod = "FILE" | "MANUAL"
 
-export type IngestionStatus = "DRAFT" | "STRUCTURING" | "STRUCTURED"
+/** STRUCTURING 은 화면 전용 과도 상태다 — 서버 상태는 DRAFT · STRUCTURED · FAILED 세 가지. */
+export type IngestionStatus = "DRAFT" | "STRUCTURING" | "STRUCTURED" | "FAILED"
 
 export type RecordStatus = "NEW" | "NEEDS_CHECK" | "NEEDS_HOLD" | "APPROVABLE" | "APPROVED" | "REJECTED"
 

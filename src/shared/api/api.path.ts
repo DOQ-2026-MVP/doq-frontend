@@ -14,6 +14,8 @@ export const API_PATH = {
         RUN: (ingestionId: number | string) => `/structuring/${ingestionId}`,
     },
     INGESTION: {
+        /** 전체 세션 목록 — 세션이 무엇인지는 서버가 안다 (브라우저에 기억해 두지 않는다). */
+        SESSIONS: () => `/ingestion`,
         UPLOADS: () => `/ingestion/uploads`,
         UPLOADS_FOR: (ingestionId: number | string) => `/ingestion/${ingestionId}/uploads`,
         UPLOAD_CONTENT: (ingestionId: number | string, uploadId: number | string) =>

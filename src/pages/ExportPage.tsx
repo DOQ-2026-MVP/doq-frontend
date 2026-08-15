@@ -4,7 +4,7 @@ import { CheckCircle2Icon, DownloadIcon, Loader2Icon, XCircleIcon } from "lucide
 import { toast } from "sonner"
 import { fetchInspections, fetchExportJson, fetchExportCsvBlob } from "@/apis/inspection"
 import type { InspectionRecordDto } from "@/apis/inspection/types"
-import { getStructuredIngestionIds } from "@/shared/lib/structuredSessions"
+import { useStructuredIngestionIds } from "@/apis/ingestion"
 import { formatText, formatPrice } from "@/shared/utils/format"
 
 type Format = "JSON" | "CSV"
@@ -57,7 +57,7 @@ function download(fileName: string, content: BlobPart, mime: string) {
 }
 
 export function ExportPage() {
-    const ingestionIds = getStructuredIngestionIds()
+    const { ids: ingestionIds } = useStructuredIngestionIds()
     const latestIngestionId = ingestionIds[ingestionIds.length - 1]
 
     const detailQuery = useQuery({

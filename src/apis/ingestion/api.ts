@@ -2,9 +2,30 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import * as React from "react"
 import { ApiHelper, type ApiEnvelope, unwrap } from "@/shared/api/api.base"
 import { API_PATH } from "@/shared/api/api.path"
-import type { IngestionDetail, IngestionRecord } from "./types"
+import type { IngestionDetail, IngestionRecord, IngestionSessionSummary } from "./types"
 
 type IngestionState = IngestionDetail
+
+/** 전체 세션 목록 (최근 것부터). 세션 목록의 출처는 서버다 — 브라우저 저장소가 아니다. */
+export const getSessions = () =>
+    unwrap(ApiHelper.get<ApiEnvelope<IngestionSessionSummary[]>>(API_PATH.INGESTION.SESSIONS()))
+
+export function useIngestionSessions() {
+    return useQuery({
+        queryKey: ["ingestion", "sessions"],
+        queryFn: getSessions,
+    })
+}
+
+/** 구조화 완료된 세션의 ingestionId 목록 — 검수·내보내기가 대상 세션을 고를 때 쓴다. */
+export function useStructuredIngestionIds() {
+    const query = useIngestionSessions()
+    const ids = React.useMemo(
+        () => (query.data ?? []).filter((s) => s.status === "STRUCTURED").map((s) => String(s.ingestionId)),
+        [query.data]
+    )
+    return { ...query, ids }
+}
 
 export const postUpload = (file: File) => {
     const form = new FormData()
@@ -189,6 +210,9 @@ export function useDeleteRecordsAll() {
 }
 
 export default {
+    getSessions,
+    useIngestionSessions,
+    useStructuredIngestionIds,
     postUpload,
     postUploadFor,
     getUploadContent,

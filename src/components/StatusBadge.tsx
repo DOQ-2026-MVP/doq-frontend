@@ -22,12 +22,14 @@ export const INGESTION_STATUS_LABEL: Record<IngestionStatus, string> = {
     DRAFT: "작성 중",
     STRUCTURING: "처리 중",
     STRUCTURED: "완료",
+    FAILED: "실패",
 }
 
 const INGESTION_STATUS_STYLE: Record<IngestionStatus, string> = {
     DRAFT: "bg-gray-100 text-gray-700 ring-gray-200",
     STRUCTURING: "bg-orange-50 text-orange-700 ring-orange-200",
     STRUCTURED: "bg-green-50 text-green-700 ring-green-200",
+    FAILED: "bg-red-50 text-red-700 ring-red-200",
 }
 
 const BASE = "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset "

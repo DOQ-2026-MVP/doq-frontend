@@ -16,6 +16,15 @@ export type IngestionDetail = {
     manuals?: any[]
 }
 
+/** 세션 목록 한 줄 — 서버가 돌려주는 세션 요약. 업로드·행 내용은 없다. */
+export type IngestionSessionSummary = {
+    ingestionId: number
+    status: "DRAFT" | "STRUCTURED" | "FAILED"
+    uploadCount: number
+    recordCount: number
+    createdAt: string
+}
+
 export type IngestionRecord = {
     id: number
     uploadId: number | null

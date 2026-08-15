@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ApiHelper, type ApiEnvelope, unwrap } from "@/shared/api/api.base"
 import { API_PATH } from "@/shared/api/api.path"
-import { getStructuredIngestionIds } from "@/shared/lib/structuredSessions"
+import { getSessions } from "@/apis/ingestion"
 import type {
     ExportRow,
     InspectionBulkConfirmResult,
@@ -58,9 +58,15 @@ export const fetchRecordChangelog = (recordId: number | string) =>
 
 export type MergedInspectionRecord = InspectionRecordDto & { ingestionId: number; inspectionId: number }
 
-/** 구조화 완료된 모든 세션(ingestionId)의 검수 레코드를 하나로 합친다 (백엔드에 전체 목록 API가 없어 프론트에서 세션별로 모은다). */
+/**
+ * 구조화 완료된 모든 세션(ingestionId)의 검수 레코드를 하나로 합친다.
+ *
+ * 대상 세션은 **서버 목록**에서 고른다 — 예전엔 브라우저 localStorage에 기억해 둔 id를 썼는데,
+ * 그러면 새로고침·다른 브라우저에서 목록이 비고, DB가 비워지면 죽은 id를 조회해 빈 화면이 됐다.
+ */
 export const fetchAllInspectionRecords = async (): Promise<MergedInspectionRecord[]> => {
-    const ingestionIds = getStructuredIngestionIds()
+    const sessions = await getSessions()
+    const ingestionIds = sessions.filter((s) => s.status === "STRUCTURED").map((s) => String(s.ingestionId))
     const details = await Promise.all(
         ingestionIds.map((id) =>
             fetchInspections(id).catch((e: any) => {
