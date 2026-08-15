@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from "react"
+import React, { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { AlertTriangleIcon, CheckIcon, InboxIcon, Loader2Icon, SearchIcon } from "lucide-react"
 import { toast } from "sonner"
@@ -165,25 +165,71 @@ export function InboxPage() {
      * 새로고침·링크 공유에서도 유지된다.
      */
     const [searchParams, setSearchParams] = useSearchParams()
+
     const keyword = searchParams.get("q") ?? ""
+
     const statusFilters = useMemo(() => {
         const raw = searchParams.get("status")
         return raw ? (raw.split(",").filter(Boolean) as RecordStatus[]) : []
     }, [searchParams])
+
     const page = Math.max(1, Number(searchParams.get("page") ?? 1) || 1)
+
+    const [searchInput, setSearchInput] = useState(keyword)
+    const isComposing = useRef(false)
 
     const patchParams = (changes: Record<string, string | null>) =>
         setSearchParams((prev) => {
             const next = new URLSearchParams(prev)
+
             Object.entries(changes).forEach(([key, value]) => {
                 if (value === null || value === "") next.delete(key)
                 else next.set(key, value)
             })
+
             return next
         })
 
-    // 조건이 바뀌면 1페이지로 — 필터를 좁혔는데 빈 페이지에 남아 있으면 안 된다.
-    const setKeyword = (value: string) => patchParams({ q: value, page: null })
+    useEffect(() => {
+        if (!isComposing.current && searchInput !== keyword) {
+            setSearchInput(keyword)
+        }
+    }, [keyword])
+
+    useEffect(() => {
+        if (isComposing.current) return
+
+        const timer = window.setTimeout(() => {
+            if (searchInput === keyword) return
+
+            patchParams({
+                q: searchInput,
+                page: null,
+            })
+        }, 300)
+
+        return () => window.clearTimeout(timer)
+    }, [searchInput, keyword])
+
+    const handleSearchChange = (value: string) => {
+        setSearchInput(value)
+    }
+
+    const handleCompositionStart = () => {
+        isComposing.current = true
+    }
+
+    const handleCompositionEnd = (event: React.CompositionEvent<HTMLInputElement>) => {
+        isComposing.current = false
+
+        const value = event.currentTarget.value
+        setSearchInput(value)
+
+        patchParams({
+            q: value,
+            page: null,
+        })
+    }
 
     /**
      * 검수 대상으로 반영된 순서를 그대로 유지하고(새 항목은 맨 뒤),
@@ -262,8 +308,10 @@ export function InboxPage() {
                             aria-hidden="true"
                         />
                         <input
-                            value={keyword}
-                            onChange={(event) => setKeyword(event.target.value)}
+                            value={searchInput}
+                            onChange={(event) => handleSearchChange(event.target.value)}
+                            onCompositionStart={handleCompositionStart}
+                            onCompositionEnd={handleCompositionEnd}
                             placeholder="문서ID, 공급사, 품목명 검색"
                             aria-label="검수 대상 검색"
                             className="w-full rounded-xl border border-gray-300 py-2 pl-9 pr-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary-100"
@@ -354,131 +402,137 @@ export function InboxPage() {
                     <>
                         <div className="overflow-x-auto">
                             <table className="w-full min-w-295 text-left text-sm">
-                            <thead>
-                                <tr className="border-b border-gray-200 bg-surface">
-                                    {COLUMNS.map((column, index) => (
-                                        <th
-                                            key={column.key}
-                                            scope="col"
-                                            className={
-                                                "whitespace-nowrap px-4 py-3 text-xs font-semibold text-gray-500 " +
-                                                (index === 0
-                                                    ? "sticky left-0 z-20 border-r border-gray-200 bg-surface"
-                                                    : "")
-                                            }
-                                        >
-                                            {column.label}
-                                        </th>
-                                    ))}
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {paged.map(({ record, displayNo }) => {
-                                    const normalizedChanged =
-                                        record.current.normalizedItemName !== record.current.rawItemName
-                                    const goToDetail = () =>
-                                        navigate("/inspection/" + record.id + "?" + searchParams.toString())
-                                    return (
-                                        <tr
-                                            key={record.id}
-                                            tabIndex={0}
-                                            role="link"
-                                            onClick={goToDetail}
-                                            onKeyDown={(event) => {
-                                                if (event.key === "Enter" || event.key === " ") {
-                                                    event.preventDefault()
-                                                    goToDetail()
+                                <thead>
+                                    <tr className="border-b border-gray-200 bg-surface">
+                                        {COLUMNS.map((column, index) => (
+                                            <th
+                                                key={column.key}
+                                                scope="col"
+                                                className={
+                                                    "whitespace-nowrap px-4 py-3 text-xs font-semibold text-gray-500 " +
+                                                    (index === 0
+                                                        ? "sticky left-0 z-20 border-r border-gray-200 bg-surface"
+                                                        : "")
                                                 }
-                                            }}
-                                            className="group cursor-pointer border-b border-gray-100 last:border-b-0 hover:bg-primary-50/60 focus:bg-primary-50 focus:outline-none"
-                                        >
-                                            <td className="sticky left-0 z-10 whitespace-nowrap border-r border-gray-100 bg-white px-4 py-3 group-hover:bg-primary-50 group-focus:bg-primary-50">
-                                                <div className="flex max-w-60 items-baseline gap-2">
-                                                    <span className="shrink-0 text-xs text-gray-400">
-                                                        {String(displayNo).padStart(2, "0")}
-                                                    </span>
-                                                    <span
-                                                        title={record.current.docId}
-                                                        className="truncate text-sm font-semibold text-gray-900"
-                                                    >
-                                                        {record.current.docId}
-                                                    </span>
-                                                    <span className="shrink-0 text-xs text-gray-400">
-                                                        {UPLOAD_METHOD_LABEL[record.uploadMethod]}
-                                                    </span>
-                                                </div>
-                                            </td>
-                                            <td className="px-4 py-3 text-gray-700">
-                                                <span
-                                                    title={record.current.supplier}
-                                                    className="block max-w-40 truncate"
-                                                >
-                                                    {record.current.supplier}
-                                                </span>
-                                            </td>
-                                            <td className="px-4 py-3">
-                                                <div className="max-w-55">
-                                                    <span
-                                                        title={record.current.normalizedItemName}
-                                                        className={
-                                                            "block truncate text-sm font-medium text-gray-900 " +
-                                                            (normalizedChanged
-                                                                ? "rounded-md bg-gold-50 px-1.5 py-0.5"
-                                                                : "")
-                                                        }
-                                                    >
-                                                        {formatText(record.current.normalizedItemName)}
-                                                    </span>
-                                                    <span
-                                                        title={record.current.rawItemName}
-                                                        className={
-                                                            "mt-0.5 block truncate text-xs text-gray-400 " +
-                                                            (normalizedChanged ? "px-1.5" : "")
-                                                        }
-                                                    >
-                                                        {formatText(record.current.rawItemName)}
-                                                    </span>
-                                                </div>
-                                            </td>
-                                            <td className="px-4 py-3 text-gray-700">
-                                                <span title={record.current.spec} className="block max-w-40 truncate">
-                                                    {formatText(record.current.spec)}
-                                                </span>
-                                            </td>
-                                            <td className="px-4 py-3 text-gray-700">
-                                                <span title={record.current.unit} className="block max-w-20 truncate">
-                                                    {formatText(record.current.unit)}
-                                                </span>
-                                            </td>
-                                            <td className="whitespace-nowrap px-4 py-3">
-                                                <span className="block text-sm font-medium text-gray-900">
-                                                    {formatPrice(record.current.priceAfter)}
-                                                </span>
-                                                <span className="mt-0.5 block text-xs text-gray-400">
-                                                    {formatPrice(record.current.priceBefore)}
-                                                </span>
-                                            </td>
-                                            <td className="whitespace-nowrap px-4 py-3 text-gray-700">
-                                                {formatText(record.current.effectiveDate)}
-                                            </td>
-                                            <td className="whitespace-nowrap px-4 py-3">
-                                                <StatusBadge status={record.status} />
-                                            </td>
-                                            <td className="whitespace-nowrap px-4 py-3">
-                                                {record.flags.length === 0 ? (
-                                                    <span className="text-gray-400">-</span>
-                                                ) : (
-                                                    <div className="flex gap-1.5">
-                                                        {record.flags.map((flag: string) => (
-                                                            <ExceptionBadge key={flag} flag={flag as any} short />
-                                                        ))}
+                                            >
+                                                {column.label}
+                                            </th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {paged.map(({ record, displayNo }) => {
+                                        const normalizedChanged =
+                                            record.current.normalizedItemName !== record.current.rawItemName
+                                        const goToDetail = () =>
+                                            navigate("/inspection/" + record.id + "?" + searchParams.toString())
+                                        return (
+                                            <tr
+                                                key={record.id}
+                                                tabIndex={0}
+                                                role="link"
+                                                onClick={goToDetail}
+                                                onKeyDown={(event) => {
+                                                    if (event.key === "Enter" || event.key === " ") {
+                                                        event.preventDefault()
+                                                        goToDetail()
+                                                    }
+                                                }}
+                                                className="group cursor-pointer border-b border-gray-100 last:border-b-0 hover:bg-primary-50/60 focus:bg-primary-50 focus:outline-none"
+                                            >
+                                                <td className="sticky left-0 z-10 whitespace-nowrap border-r border-gray-100 bg-white px-4 py-3 group-hover:bg-primary-50 group-focus:bg-primary-50">
+                                                    <div className="flex max-w-60 items-baseline gap-2">
+                                                        <span className="shrink-0 text-xs text-gray-400">
+                                                            {String(displayNo).padStart(2, "0")}
+                                                        </span>
+                                                        <span
+                                                            title={record.current.docId}
+                                                            className="truncate text-sm font-semibold text-gray-900"
+                                                        >
+                                                            {record.current.docId}
+                                                        </span>
+                                                        <span className="shrink-0 text-xs text-gray-400">
+                                                            {UPLOAD_METHOD_LABEL[record.uploadMethod]}
+                                                        </span>
                                                     </div>
-                                                )}
-                                            </td>
-                                        </tr>
-                                    )
-                                })}
-                            </tbody>
+                                                </td>
+                                                <td className="px-4 py-3 text-gray-700">
+                                                    <span
+                                                        title={record.current.supplier}
+                                                        className="block max-w-40 truncate"
+                                                    >
+                                                        {record.current.supplier}
+                                                    </span>
+                                                </td>
+                                                <td className="px-4 py-3">
+                                                    <div className="max-w-55">
+                                                        <span
+                                                            title={record.current.normalizedItemName}
+                                                            className={
+                                                                "block truncate text-sm font-medium text-gray-900 " +
+                                                                (normalizedChanged
+                                                                    ? "rounded-md bg-gold-50 px-1.5 py-0.5"
+                                                                    : "")
+                                                            }
+                                                        >
+                                                            {formatText(record.current.normalizedItemName)}
+                                                        </span>
+                                                        <span
+                                                            title={record.current.rawItemName}
+                                                            className={
+                                                                "mt-0.5 block truncate text-xs text-gray-400 " +
+                                                                (normalizedChanged ? "px-1.5" : "")
+                                                            }
+                                                        >
+                                                            {formatText(record.current.rawItemName)}
+                                                        </span>
+                                                    </div>
+                                                </td>
+                                                <td className="px-4 py-3 text-gray-700">
+                                                    <span
+                                                        title={record.current.spec}
+                                                        className="block max-w-40 truncate"
+                                                    >
+                                                        {formatText(record.current.spec)}
+                                                    </span>
+                                                </td>
+                                                <td className="px-4 py-3 text-gray-700">
+                                                    <span
+                                                        title={record.current.unit}
+                                                        className="block max-w-20 truncate"
+                                                    >
+                                                        {formatText(record.current.unit)}
+                                                    </span>
+                                                </td>
+                                                <td className="whitespace-nowrap px-4 py-3">
+                                                    <span className="block text-sm font-medium text-gray-900">
+                                                        {formatPrice(record.current.priceAfter)}
+                                                    </span>
+                                                    <span className="mt-0.5 block text-xs text-gray-400">
+                                                        {formatPrice(record.current.priceBefore)}
+                                                    </span>
+                                                </td>
+                                                <td className="whitespace-nowrap px-4 py-3 text-gray-700">
+                                                    {formatText(record.current.effectiveDate)}
+                                                </td>
+                                                <td className="whitespace-nowrap px-4 py-3">
+                                                    <StatusBadge status={record.status} />
+                                                </td>
+                                                <td className="whitespace-nowrap px-4 py-3">
+                                                    {record.flags.length === 0 ? (
+                                                        <span className="text-gray-400">-</span>
+                                                    ) : (
+                                                        <div className="flex gap-1.5">
+                                                            {record.flags.map((flag: string) => (
+                                                                <ExceptionBadge key={flag} flag={flag as any} short />
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        )
+                                    })}
+                                </tbody>
                             </table>
                         </div>
                         <Pagination
