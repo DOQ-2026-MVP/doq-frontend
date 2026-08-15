@@ -13,6 +13,9 @@ export const FIELD_LABEL: Record<keyof InspectionValues, string> = {
     normalizedItemName: "정규화 품목명",
 }
 
+/** 서버가 준 요청 필드명을 화면 라벨로. 모르는 필드는 이름 그대로 둔다(빈 문자열보다 낫다). */
+export const fieldLabel = (field: string) => FIELD_LABEL[field as keyof InspectionValues] ?? field
+
 export const SOURCE_TYPE_LABEL: Record<SourceType, string> = {
     XLSX: "XLSX",
     CSV: "CSV",

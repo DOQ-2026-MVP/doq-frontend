@@ -30,13 +30,10 @@ import { useRunStructuring } from "@/apis/structuring"
 import { fetchInspections } from "@/apis/inspection"
 import type { IngestionStatus } from "@/shared/model/inspection"
 import { apiErrorMessage } from "@/shared/api/api.base"
-import { FIELD_LABEL } from "@/shared/utils/labels"
+import { fieldLabel } from "@/shared/utils/labels"
 import { rememberIngestionId } from "@/shared/lib/useSelectedIngestionId"
 import { formatDateTime } from "@/shared/utils/format"
 import { resizeFileIfNeeded } from "@/shared/utils/uploadRows"
-
-/** 서버가 준 요청 필드명을 화면 라벨로. 모르는 필드는 이름 그대로 둔다(빈 문자열보다 낫다). */
-const fieldLabel = (field: string) => FIELD_LABEL[field as keyof typeof FIELD_LABEL] ?? field
 
 /**
  * 구조화(POST /api/structuring)는 응답을 먼저 보내고 실제 인계(Inspection 생성)는 트랜잭션 커밋 후
