@@ -165,7 +165,10 @@ export function InspectionDetailPage() {
         )
     }
 
-    const inboxPath = sessionIngestionId ? "/inbox?ingestionId=" + sessionIngestionId : "/inbox"
+    // 목록에서 달고 온 쿼리를 그대로 되돌려준다 — 세션뿐 아니라 검색어·상태 필터·페이지까지.
+    // ingestionId 만 다시 조립하면 나머지가 버려져 목록이 초기화된 채로 돌아간다.
+    const inboxQuery = searchParams.toString()
+    const inboxPath = inboxQuery === "" ? "/inbox" : "/inbox?" + inboxQuery
     const missingRequired = record.flags.includes("MISSING_REQUIRED")
 
     function invalidateInspection() {
