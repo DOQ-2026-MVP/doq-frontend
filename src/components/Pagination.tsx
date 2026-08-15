@@ -24,10 +24,11 @@ export function Pagination({ page, totalCount, onChange, pageSize = PAGE_SIZE }:
         "min-w-8 rounded-lg px-2 py-1 text-xs font-medium " +
         (active ? "bg-primary text-white" : "border border-gray-300 bg-white text-gray-700 hover:bg-surface")
 
+    // 표가 길면 페이지 이동이 화면 밖으로 밀려난다 — 목록 아래에 붙여 스크롤 중에도 닿게 한다.
     return (
         <nav
             aria-label="페이지 이동"
-            className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-200 px-5 py-3"
+            className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 border-t border-gray-200 bg-white/95 px-5 py-3 backdrop-blur"
         >
             <p className="text-xs text-gray-500">
                 {totalCount}건 중 {from}–{to}

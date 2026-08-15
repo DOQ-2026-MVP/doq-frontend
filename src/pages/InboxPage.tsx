@@ -351,8 +351,9 @@ export function InboxPage() {
                 )}
 
                 {loadState === "ready" && filtered.length > 0 && (
-                    <div className="overflow-x-auto">
-                        <table className="w-full min-w-295 text-left text-sm">
+                    <>
+                        <div className="overflow-x-auto">
+                            <table className="w-full min-w-295 text-left text-sm">
                             <thead>
                                 <tr className="border-b border-gray-200 bg-surface">
                                     {COLUMNS.map((column, index) => (
@@ -478,13 +479,14 @@ export function InboxPage() {
                                     )
                                 })}
                             </tbody>
-                        </table>
+                            </table>
+                        </div>
                         <Pagination
                             page={page}
                             totalCount={filtered.length}
                             onChange={(next) => patchParams({ page: next > 1 ? String(next) : null })}
                         />
-                    </div>
+                    </>
                 )}
             </div>
         </div>
