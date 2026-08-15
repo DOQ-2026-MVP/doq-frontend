@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from "react"
-import { useNavigate } from "react-router-dom"
+import React, { useEffect, useMemo } from "react"
+import { useNavigate, useSearchParams } from "react-router-dom"
 import { AlertTriangleIcon, CheckIcon, InboxIcon, Loader2Icon, SearchIcon } from "lucide-react"
 import { toast } from "sonner"
 import {
@@ -8,6 +8,8 @@ import {
     type InspectionRecordDto,
     type InspectionBulkConfirmResult,
 } from "@/apis/inspection"
+import { Pagination } from "@/components/Pagination"
+import { pageSliceOf, totalPagesOf } from "@/shared/lib/paging"
 import { SessionPicker } from "@/components/SessionPicker"
 import { useSelectedIngestionId } from "@/shared/lib/useSelectedIngestionId"
 import { ExceptionBadge } from "@/components/ExceptionBadge"
@@ -158,8 +160,30 @@ export function InboxPage() {
         }
     }
 
-    const [keyword, setKeyword] = useState("")
-    const [statusFilters, setStatusFilters] = useState<RecordStatus[]>([])
+    /**
+     * 검색어·상태 필터·페이지도 URL 에 둔다 — 검수 상세에 다녀와도 보던 화면 그대로 돌아오고,
+     * 새로고침·링크 공유에서도 유지된다.
+     */
+    const [searchParams, setSearchParams] = useSearchParams()
+    const keyword = searchParams.get("q") ?? ""
+    const statusFilters = useMemo(() => {
+        const raw = searchParams.get("status")
+        return raw ? (raw.split(",").filter(Boolean) as RecordStatus[]) : []
+    }, [searchParams])
+    const page = Math.max(1, Number(searchParams.get("page") ?? 1) || 1)
+
+    const patchParams = (changes: Record<string, string | null>) =>
+        setSearchParams((prev) => {
+            const next = new URLSearchParams(prev)
+            Object.entries(changes).forEach(([key, value]) => {
+                if (value === null || value === "") next.delete(key)
+                else next.set(key, value)
+            })
+            return next
+        })
+
+    // 조건이 바뀌면 1페이지로 — 필터를 좁혔는데 빈 페이지에 남아 있으면 안 된다.
+    const setKeyword = (value: string) => patchParams({ q: value, page: null })
 
     /**
      * 검수 대상으로 반영된 순서를 그대로 유지하고(새 항목은 맨 뒤),
@@ -186,8 +210,21 @@ export function InboxPage() {
         })
     }, [numbered, keyword, statusFilters])
 
+    const totalPages = totalPagesOf(filtered.length)
+    const { start, end } = pageSliceOf(page)
+    const paged = useMemo(() => filtered.slice(start, end), [filtered, start, end])
+
+    // 필터 결과가 줄어 현재 페이지가 사라지면 마지막 페이지로 당긴다.
+    useEffect(() => {
+        if (page > totalPages) patchParams({ page: totalPages > 1 ? String(totalPages) : null })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [page, totalPages])
+
     function toggleStatus(status: RecordStatus) {
-        setStatusFilters((prev) => (prev.includes(status) ? prev.filter((item) => item !== status) : [...prev, status]))
+        const next = statusFilters.includes(status)
+            ? statusFilters.filter((item) => item !== status)
+            : [...statusFilters, status]
+        patchParams({ status: next.join(","), page: null })
     }
 
     return (
@@ -240,7 +277,7 @@ export function InboxPage() {
                     >
                         <button
                             type="button"
-                            onClick={() => setStatusFilters([])}
+                            onClick={() => patchParams({ status: null, page: null })}
                             aria-pressed={statusFilters.length === 0}
                             className={
                                 "rounded-xl px-3 py-1.5 text-xs font-medium transition-colors " +
@@ -335,11 +372,11 @@ export function InboxPage() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {filtered.map(({ record, displayNo }) => {
+                                {paged.map(({ record, displayNo }) => {
                                     const normalizedChanged =
                                         record.current.normalizedItemName !== record.current.rawItemName
                                     const goToDetail = () =>
-                                        navigate("/inspection/" + record.id + "?ingestionId=" + record.ingestionId)
+                                        navigate("/inspection/" + record.id + "?" + searchParams.toString())
                                     return (
                                         <tr
                                             key={record.id}
@@ -442,6 +479,11 @@ export function InboxPage() {
                                 })}
                             </tbody>
                         </table>
+                        <Pagination
+                            page={page}
+                            totalCount={filtered.length}
+                            onChange={(next) => patchParams({ page: next > 1 ? String(next) : null })}
+                        />
                     </div>
                 )}
             </div>
