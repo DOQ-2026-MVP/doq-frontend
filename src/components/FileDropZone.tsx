@@ -52,9 +52,6 @@ export function FileDropZone({ onSelect }: FileDropZoneProps) {
             >
                 <UploadCloudIcon className="h-6 w-6 text-gray-400" aria-hidden="true" />
                 <p className="mt-3 text-sm text-gray-700">파일을 이곳에 끌어다 놓으세요</p>
-                <p className="mt-1 text-xs text-gray-500">
-                    지원 형식: XLSX, CSV, PDF, PNG, JPEG · 여러 개를 한 번에 고를 수 있습니다
-                </p>
                 <button
                     type="button"
                     onClick={() => inputRef.current?.click()}

@@ -386,7 +386,7 @@ export function IntakePage() {
                     {tab === "FILE" ? (
                         <div role="tabpanel" id="panel-FILE" aria-labelledby="tab-FILE">
                             <p className="text-xs text-gray-500">
-                                지원 형식: XLSX, CSV, PDF, PNG, JPEG · 파일은 여러 번 나눠 등록할 수 있습니다.
+                                지원 형식: XLSX, CSV, PDF, PNG, JPEG
                             </p>
                             <p className="mb-4 mt-1 text-xs text-gray-400">
                                 PNG, JPEG, PDF는 10MB 이하로 자동 리사이징됩니다.
