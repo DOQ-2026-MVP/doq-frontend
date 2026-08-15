@@ -112,7 +112,8 @@ export function IntakePage() {
     const queryClient = useQueryClient()
     // 세션 목록의 출처는 서버다 — 브라우저에 기억해 두면 새로고침·다른 기기에서 통째로 사라진다.
     const sessionsQuery = useIngestionSessions()
-    const serverSessions = sessionsQuery.data ?? []
+    // 목록은 최신 세션부터 — 서버는 등록순으로 준다(그 순서에 기대는 곳이 있어 표시만 뒤집는다).
+    const serverSessions = useMemo(() => [...(sessionsQuery.data ?? [])].reverse(), [sessionsQuery.data])
     const uploadMutation = useUpload()
     const uploadForMutation = useUploadFor()
     const postRecordsMutation = usePostRecords()
