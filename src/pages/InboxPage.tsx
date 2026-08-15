@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from "react"
+import React, { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { AlertTriangleIcon, CheckIcon, InboxIcon, Loader2Icon, SearchIcon } from "lucide-react"
 import { toast } from "sonner"
@@ -165,14 +165,14 @@ export function InboxPage() {
      * 새로고침·링크 공유에서도 유지된다.
      */
     const [searchParams, setSearchParams] = useSearchParams()
-    const keyword = searchParams.get("q") ?? ""
+    const urlKeyword = searchParams.get("q") ?? ""
     const statusFilters = useMemo(() => {
         const raw = searchParams.get("status")
         return raw ? (raw.split(",").filter(Boolean) as RecordStatus[]) : []
     }, [searchParams])
     const page = Math.max(1, Number(searchParams.get("page") ?? 1) || 1)
 
-    const patchParams = (changes: Record<string, string | null>) =>
+    const patchParams = (changes: Record<string, string | null>, options?: { replace?: boolean }) =>
         setSearchParams((prev) => {
             const next = new URLSearchParams(prev)
             Object.entries(changes).forEach(([key, value]) => {
@@ -180,10 +180,45 @@ export function InboxPage() {
                 else next.set(key, value)
             })
             return next
-        })
+        }, options)
 
-    // 조건이 바뀌면 1페이지로 — 필터를 좁혔는데 빈 페이지에 남아 있으면 안 된다.
-    const setKeyword = (value: string) => patchParams({ q: value, page: null })
+    /**
+     * 검색어는 화면 state 로 들고, URL 반영만 뒤로 미룬다.
+     *
+     * URL 을 곧바로 input 의 value 로 쓰면 한 글자마다 라우터 네비게이션이 돌고,
+     * 라우터는 그 갱신을 startTransition 으로 미룬다. 그 사이 React 가 조합 중인
+     * input 에 낡은 value 를 되써넣으면 브라우저가 IME 조합을 강제로 확정해버린다.
+     * "가온푸드" 가 "ㄱ가강오온ㅍ푸푿드" 로 찍히던 원인.
+     */
+    const [keyword, setKeyword] = useState(urlKeyword)
+    const syncedKeyword = useRef(urlKeyword)
+
+    // 뒤로가기·링크 진입처럼 URL 이 바깥에서 바뀐 경우에만 입력창을 되맞춘다.
+    useEffect(() => {
+        if (urlKeyword === syncedKeyword.current) return
+        syncedKeyword.current = urlKeyword
+        setKeyword(urlKeyword)
+    }, [urlKeyword])
+
+    // 타이핑이 멎으면 URL 에 반영한다. replace 로 — 글자마다 히스토리가 쌓이면 뒤로가기가 막힌다.
+    useEffect(() => {
+        if (keyword === syncedKeyword.current) return
+        const timer = setTimeout(() => {
+            syncedKeyword.current = keyword
+            // 조건이 바뀌면 1페이지로 — 필터를 좁혔는데 빈 페이지에 남아 있으면 안 된다.
+            patchParams({ q: keyword, page: null }, { replace: true })
+        }, 200)
+        return () => clearTimeout(timer)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [keyword])
+
+    // 아직 URL 에 안 실린 검색어까지 얹어서 상세로 넘긴다 — 타이핑 직후 행을 눌러도 검색어가 살아 돌아온다.
+    const detailQuery = useMemo(() => {
+        const next = new URLSearchParams(searchParams)
+        if (keyword) next.set("q", keyword)
+        else next.delete("q")
+        return next.toString()
+    }, [searchParams, keyword])
 
     /**
      * 검수 대상으로 반영된 순서를 그대로 유지하고(새 항목은 맨 뒤),
@@ -216,7 +251,8 @@ export function InboxPage() {
 
     // 필터 결과가 줄어 현재 페이지가 사라지면 마지막 페이지로 당긴다.
     useEffect(() => {
-        if (page > totalPages) patchParams({ page: totalPages > 1 ? String(totalPages) : null })
+        if (page > totalPages)
+            patchParams({ page: totalPages > 1 ? String(totalPages) : null }, { replace: true })
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [page, totalPages])
 
@@ -376,8 +412,7 @@ export function InboxPage() {
                                 {paged.map(({ record, displayNo }) => {
                                     const normalizedChanged =
                                         record.current.normalizedItemName !== record.current.rawItemName
-                                    const goToDetail = () =>
-                                        navigate("/inspection/" + record.id + "?" + searchParams.toString())
+                                    const goToDetail = () => navigate("/inspection/" + record.id + "?" + detailQuery)
                                     return (
                                         <tr
                                             key={record.id}
