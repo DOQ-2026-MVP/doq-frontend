@@ -290,6 +290,10 @@ export function IntakePage() {
             window.setTimeout(() => statusRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 60)
         } catch (e) {
             console.error("manual upload failed", e)
+
+            const message = e instanceof Error ? e.message : "수기 입력 등록 중 오류가 발생했습니다."
+
+            setError(message)
             toast.error("수기 입력 등록에 실패했습니다.")
         }
     }
@@ -385,9 +389,7 @@ export function IntakePage() {
                 <div className="p-5">
                     {tab === "FILE" ? (
                         <div role="tabpanel" id="panel-FILE" aria-labelledby="tab-FILE">
-                            <p className="text-xs text-gray-500">
-                                지원 형식: XLSX, CSV, PDF, PNG, JPEG
-                            </p>
+                            <p className="text-xs text-gray-500">지원 형식: XLSX, CSV, PDF, PNG, JPEG</p>
                             <p className="mb-4 mt-1 text-xs text-gray-400">
                                 PNG, JPEG, PDF는 10MB 이하로 자동 리사이징됩니다.
                             </p>
@@ -406,21 +408,21 @@ export function IntakePage() {
                     )}
 
                     {tab === "MANUAL" && (
-                    <div className="mt-5 flex justify-end border-t border-gray-100 pt-4">
-                        <button
-                            type="button"
-                            onClick={handleRegisterManual}
-                            disabled={processing}
-                            className={
-                                "rounded-xl px-4 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-primary-100 " +
-                                (processing
-                                    ? "cursor-not-allowed bg-gray-100 text-gray-400"
-                                    : "bg-primary text-white hover:bg-primary-700")
-                            }
-                        >
-                            등록
-                        </button>
-                    </div>
+                        <div className="mt-5 flex justify-end border-t border-gray-100 pt-4">
+                            <button
+                                type="button"
+                                onClick={handleRegisterManual}
+                                disabled={processing}
+                                className={
+                                    "rounded-xl px-4 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-primary-100 " +
+                                    (processing
+                                        ? "cursor-not-allowed bg-gray-100 text-gray-400"
+                                        : "bg-primary text-white hover:bg-primary-700")
+                                }
+                            >
+                                등록
+                            </button>
+                        </div>
                     )}
                 </div>
             </section>
@@ -433,17 +435,12 @@ export function IntakePage() {
                 <div className="flex flex-wrap items-center gap-3 border-b border-gray-200 px-5 py-4">
                     <h2 id="session-title" className="text-sm font-semibold text-gray-900">
                         등록 현황
-                        {activeId && (
-                            <span className="font-normal text-gray-500">
-                                {" | 등록 세션 #" + activeId}
-                            </span>
-                        )}
+                        {activeId && <span className="font-normal text-gray-500">{" | 등록 세션 #" + activeId}</span>}
                     </h2>
                     {activeStatus && <IngestionStatusBadge status={activeStatus} />}
                     {activeStatus && (
                         <span className="text-sm text-gray-500">
-                            항목 {entries.length}개
-                            {serverRecordCount > 0 && ` · 서버 레코드 ${serverRecordCount}건`}
+                            항목 {entries.length}개{serverRecordCount > 0 && ` · 서버 레코드 ${serverRecordCount}건`}
                         </span>
                     )}
 
@@ -604,31 +601,31 @@ export function IntakePage() {
                                     // 구조화가 끝난 세션만 검수 대상이 있다 — 그 세션의 검수 목록으로 바로 보낸다.
                                     const openable = session.status === "STRUCTURED"
                                     return (
-                                    <tr
-                                        key={session.ingestionId}
-                                        className={
-                                            "border-b border-gray-100 last:border-b-0 " +
-                                            (openable ? "cursor-pointer hover:bg-primary-50/60" : "")
-                                        }
-                                        onClick={
-                                            openable
-                                                ? () => navigate("/inbox?ingestionId=" + session.ingestionId)
-                                                : undefined
-                                        }
-                                    >
-                                        <td className="whitespace-nowrap px-5 py-3 font-medium text-gray-900">
-                                            등록 세션 #{session.ingestionId}
-                                        </td>
-                                        <td className="whitespace-nowrap px-5 py-3">
-                                            <IngestionStatusBadge status={session.status} />
-                                        </td>
-                                        <td className="whitespace-nowrap px-5 py-3 text-gray-700">
-                                            {session.recordCount}개
-                                        </td>
-                                        <td className="whitespace-nowrap px-5 py-3 text-gray-500">
-                                            {formatDateTime(session.createdAt)}
-                                        </td>
-                                    </tr>
+                                        <tr
+                                            key={session.ingestionId}
+                                            className={
+                                                "border-b border-gray-100 last:border-b-0 " +
+                                                (openable ? "cursor-pointer hover:bg-primary-50/60" : "")
+                                            }
+                                            onClick={
+                                                openable
+                                                    ? () => navigate("/inbox?ingestionId=" + session.ingestionId)
+                                                    : undefined
+                                            }
+                                        >
+                                            <td className="whitespace-nowrap px-5 py-3 font-medium text-gray-900">
+                                                등록 세션 #{session.ingestionId}
+                                            </td>
+                                            <td className="whitespace-nowrap px-5 py-3">
+                                                <IngestionStatusBadge status={session.status} />
+                                            </td>
+                                            <td className="whitespace-nowrap px-5 py-3 text-gray-700">
+                                                {session.recordCount}개
+                                            </td>
+                                            <td className="whitespace-nowrap px-5 py-3 text-gray-500">
+                                                {formatDateTime(session.createdAt)}
+                                            </td>
+                                        </tr>
                                     )
                                 })
                             )}
