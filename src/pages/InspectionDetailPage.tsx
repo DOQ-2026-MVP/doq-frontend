@@ -15,7 +15,7 @@ import {
     useConfirmRecord,
     useRejectRecord,
 } from "@/apis/inspection"
-import { useGetRecordsFor } from "@/apis/ingestion"
+import { useGetRecordsFor, useIngestionDetail } from "@/apis/ingestion"
 import type { InspectionRecordDto } from "@/apis/inspection/types"
 import type { ExceptionFlag, InspectionValues, SourceType } from "@/shared/model/inspection"
 import { deriveDisplayStatus } from "@/shared/utils/structuring"
@@ -96,6 +96,13 @@ export function InspectionDetailPage() {
     const uploadId = useMemo(
         () => rawRecordsQuery.data?.find((item) => item.id === dto?.ingestionRecordId)?.uploadId ?? null,
         [rawRecordsQuery.data, dto]
+    )
+    // 미리보기 방식은 실제 업로드된 파일이 정한다 — 행의 `원본유형` 컬럼과 다를 수 있다
+    // (취합 CSV 한 장에서 나온 행의 원본유형이 PDF 로 적혀 있는 식).
+    const ingestionDetailQuery = useIngestionDetail(ingestionId)
+    const uploadFileName = useMemo(
+        () => ingestionDetailQuery.data?.uploads?.find((item) => item.id === uploadId)?.fileName ?? null,
+        [ingestionDetailQuery.data, uploadId]
     )
 
     const record = useMemo(() => {
@@ -256,8 +263,7 @@ export function InspectionDetailPage() {
                         </span>
                     </p>
                     <SourcePreview
-                        sourceType={record.observed.sourceType}
-                        fileName={record.fileName}
+                        fileName={uploadFileName}
                         uploadRowNo={record.uploadRowNo}
                         ingestionId={ingestionId}
                         uploadId={uploadId}
