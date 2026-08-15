@@ -32,8 +32,9 @@ export function isKnownSourceType(value: string): value is SourceType {
  * 범주(IMAGE)라 그대로 쓰면 값이 어디에도 안 걸린다 — 실제로 `<select>` 가 매칭되는
  * option 을 못 찾고 첫 옵션(XLSX)으로 떨어져 PNG 원본이 XLSX 로 보였다.
  *
- * 아는 확장자는 여기서 범주로 흡수한다. 모르는 값은 임의로 바꾸지 않고 그대로 흘려보낸다 —
- * 조용히 다른 값이 되는 것보다 낯선 값이 그대로 보이는 편이 낫다.
+ * 값은 건드리지 않는다. 검수 저장은 화면이 들고 있는 값을 그대로 서버에 돌려주기 때문에,
+ * 여기서 흡수해 버리면 공급사만 고쳐 저장해도 원본유형까지 덮어쓰게 된다. 라벨만 범주로
+ * 읽어주고 저장되는 값은 서버가 준 것 그대로 둔다.
  */
 const SOURCE_TYPE_ALIAS: Record<string, SourceType> = {
     PNG: "IMAGE",
@@ -41,12 +42,18 @@ const SOURCE_TYPE_ALIAS: Record<string, SourceType> = {
     JPEG: "IMAGE",
 }
 
-export function toSourceType(raw: string | null | undefined): SourceType {
-    const key = String(raw ?? "")
-        .trim()
-        .toUpperCase()
-    if (key === "") return "MANUAL"
-    return SOURCE_TYPE_ALIAS[key] ?? (key as SourceType)
+export function sourceTypeLabel(raw: string | null | undefined): string {
+    const value = String(raw ?? "").trim()
+    if (value === "") return SOURCE_TYPE_LABEL.MANUAL
+
+    const key = value.toUpperCase()
+    if (isKnownSourceType(key)) return SOURCE_TYPE_LABEL[key]
+
+    // 아는 확장자면 범주로 읽어주되 서버 표기도 같이 보여준다 — 저장되는 값은 이 표기 그대로다.
+    const alias = SOURCE_TYPE_ALIAS[key]
+    if (alias) return `${SOURCE_TYPE_LABEL[alias]} (${value})`
+
+    return `${value} (알 수 없는 유형)`
 }
 
 export const UPLOAD_METHOD_LABEL: Record<UploadMethod, string> = {

@@ -25,7 +25,7 @@ import {
     SOURCE_TYPES,
     SOURCE_TYPE_LABEL,
     isKnownSourceType,
-    toSourceType,
+    sourceTypeLabel,
 } from "@/shared/utils/labels"
 
 const FIELD_ORDER: (keyof InspectionValues)[] = [
@@ -63,7 +63,7 @@ type PendingAction = "BACK" | "CONFIRM" | "REJECT" | "REVIEW"
 function toValues(values: InspectionRecordDto["current"]): InspectionValues {
     return {
         docId: values?.docId ?? "",
-        sourceType: toSourceType(values?.sourceType),
+        sourceType: (values?.sourceType ?? "MANUAL") as SourceType,
         supplier: values?.supplier ?? "",
         rawItemName: values?.rawItemName ?? "",
         spec: values?.spec ?? "",
@@ -283,7 +283,7 @@ export function InspectionDetailPage() {
                                 <dt className="text-xs text-gray-500">{FIELD_LABEL[field]}</dt>
                                 <dd className="col-span-2 text-sm text-gray-900">
                                     {field === "sourceType"
-                                        ? (SOURCE_TYPE_LABEL[record.observed.sourceType] ?? record.observed.sourceType)
+                                        ? sourceTypeLabel(record.observed.sourceType)
                                         : PRICE_FIELDS.includes(field)
                                           ? formatPrice(record.observed[field])
                                           : formatText(record.observed[field])}
@@ -322,12 +322,13 @@ export function InspectionDetailPage() {
                                             }
                                         >
                                             {/*
-                                             * 모르는 값이 와도 option 을 만들어 준다. 없으면 브라우저가 첫 옵션으로
-                                             * 떨어뜨려, 손댄 적 없는 원본유형이 XLSX 로 둔갑한다.
+                                             * 규약에 없는 값(서버가 주는 "PNG" 같은 확장자)이 와도 그 값을 담은
+                                             * option 을 만들어 준다. 없으면 브라우저가 첫 옵션으로 떨어뜨려,
+                                             * 손댄 적 없는 원본유형이 XLSX 로 둔갑한 채 저장까지 된다.
                                              */}
                                             {!isKnownSourceType(draft.sourceType) && (
                                                 <option value={draft.sourceType}>
-                                                    {draft.sourceType} (알 수 없는 유형)
+                                                    {sourceTypeLabel(draft.sourceType)}
                                                 </option>
                                             )}
                                             {SOURCE_TYPES.map((type) => (
