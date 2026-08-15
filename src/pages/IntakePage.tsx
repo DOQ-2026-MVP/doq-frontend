@@ -29,6 +29,8 @@ import {
 import { useRunStructuring } from "@/apis/structuring"
 import { fetchInspections } from "@/apis/inspection"
 import type { IngestionStatus } from "@/shared/model/inspection"
+import { apiErrorMessage } from "@/shared/api/api.base"
+import { fieldLabel } from "@/shared/utils/labels"
 import { rememberIngestionId } from "@/shared/lib/useSelectedIngestionId"
 import { formatDateTime } from "@/shared/utils/format"
 import { resizeFileIfNeeded } from "@/shared/utils/uploadRows"
@@ -290,7 +292,10 @@ export function IntakePage() {
             window.setTimeout(() => statusRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 60)
         } catch (e) {
             console.error("manual upload failed", e)
-            toast.error("수기 입력 등록에 실패했습니다.")
+            // 서버가 어떤 칸이 왜 틀렸는지 필드별로 알려준다 — 뭉뚱그린 실패 문구 대신 그걸 그대로 보여준다.
+            const message = apiErrorMessage(e, "수기 입력 등록에 실패했습니다.", fieldLabel)
+            setError(message)
+            toast.error(message)
         }
     }
 
@@ -400,7 +405,7 @@ export function IntakePage() {
                     )}
 
                     {error && (
-                        <p className="mt-4 text-sm text-red-600" role="alert">
+                        <p className="mt-4 whitespace-pre-line text-sm text-red-600" role="alert">
                             {error}
                         </p>
                     )}

@@ -119,8 +119,51 @@ export const ApiHelper = {
 export interface ApiEnvelope<T> {
     success: boolean
     data: T
-    error?: { code: string; message: string }
+    error?: ApiError
+}
+
+/** 입력 검증 실패 시 서버가 필드 단위로 내려주는 사유. 리스트 바디는 `[0].docId` 처럼 행 번호가 앞에 붙는다. */
+export interface ApiFieldError {
+    field: string
+    reason: string
+}
+
+export interface ApiError {
+    code: string
+    message: string
+    fields?: ApiFieldError[] | null
 }
 
 /** envelope 응답에서 실제 데이터만 꺼낸다. */
 export const unwrap = <T,>(promise: Promise<ApiEnvelope<T>>): Promise<T> => promise.then((res) => res.data)
+
+/** axios 예외에서 서버 envelope 의 error 를 꺼낸다 — 네트워크 오류 등 envelope 이 없으면 null. */
+export function apiError(e: unknown): ApiError | null {
+    const error = (e as { response?: { data?: ApiEnvelope<unknown> } })?.response?.data?.error
+    return error && typeof error.message === "string" ? error : null
+}
+
+/**
+ * 검증 실패를 사람이 읽는 한 덩어리로 만든다.
+ *
+ * 서버가 `fields` 를 주므로 필드 이름을 화면 라벨로 바꿔 "적용일: 필수입니다" 형태로 붙인다.
+ * (fields 가 없는 실패는 message 하나뿐이라 그대로 쓴다.)
+ */
+export function apiErrorMessage(e: unknown, fallback: string, label?: (field: string) => string): string {
+    const error = apiError(e)
+    if (!error) return fallback
+    const fields = error.fields
+    if (!fields || fields.length === 0) return error.message || fallback
+
+    return fields
+        .map(({ field, reason }) => {
+            // 리스트 바디의 `[0].docId` 에서 행 번호와 필드명을 분리한다.
+            const match = /^\[(\d+)\]\.(.+)$/.exec(field)
+            const name = match ? match[2] : field
+            const row = match ? `${Number(match[1]) + 1}행 ` : ""
+            // 서버 메시지가 이미 "문서ID는 필수입니다"처럼 필드를 말하면 라벨을 겹쳐 붙이지 않는다.
+            const labeled = label?.(name) ?? name
+            return reason.includes(labeled) ? `${row}${reason}` : `${row}${labeled}: ${reason}`
+        })
+        .join("\n")
+}
