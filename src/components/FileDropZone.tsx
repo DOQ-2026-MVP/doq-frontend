@@ -1,30 +1,35 @@
 import { useRef, useState } from "react"
 import { UploadCloudIcon } from "lucide-react"
-import { isAcceptedFile, ACCEPT_ATTRIBUTE, resizeFileIfNeeded } from "@/shared/utils/uploadRows"
+import { isAcceptedFile, ACCEPT_ATTRIBUTE } from "@/shared/utils/uploadRows"
 
 interface FileDropZoneProps {
-    onChange: (file: File | null) => void
+    /** 고른 파일들을 넘긴다 — 이미 고른 것에 이어붙이는 건 부모가 정한다. */
+    onSelect: (files: File[]) => void
 }
 
-export function FileDropZone({ onChange }: FileDropZoneProps) {
+export function FileDropZone({ onSelect }: FileDropZoneProps) {
     const inputRef = useRef<HTMLInputElement>(null)
     const [dragging, setDragging] = useState(false)
     const [error, setError] = useState("")
 
-    async function accept(selected: File | null) {
-        if (!selected) return
-        if (!isAcceptedFile(selected.name)) {
-            setError("XLSX, CSV, PDF, PNG, JPEG 파일만 등록할 수 있습니다.")
-            onChange(null)
-            return
-        }
-        setError("")
-        try {
-            const processed = await resizeFileIfNeeded(selected)
-            onChange(processed)
-        } catch (e) {
-            onChange(selected)
-        }
+    /**
+     * 지원하지 않는 형식은 걸러내고 나머지는 그대로 넘긴다.
+     * 리사이징은 등록(업로드) 시점에 한다 — 고를 때마다 큰 파일을 갈면 선택이 느려진다.
+     */
+    function accept(selected: FileList | null) {
+        const picked = Array.from(selected ?? [])
+        if (picked.length === 0) return
+
+        const accepted = picked.filter((file) => isAcceptedFile(file.name))
+        const rejected = picked.filter((file) => !isAcceptedFile(file.name))
+
+        setError(
+            rejected.length === 0
+                ? ""
+                : rejected.map((file) => file.name).join(", ") +
+                      " — XLSX, CSV, PDF, PNG, JPEG 파일만 등록할 수 있습니다."
+        )
+        if (accepted.length > 0) onSelect(accepted)
     }
 
     return (
@@ -38,7 +43,7 @@ export function FileDropZone({ onChange }: FileDropZoneProps) {
                 onDrop={(event) => {
                     event.preventDefault()
                     setDragging(false)
-                    void accept(event.dataTransfer.files[0] ?? null)
+                    accept(event.dataTransfer.files)
                 }}
                 className={
                     "flex flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-8 text-center transition-colors " +
@@ -47,7 +52,9 @@ export function FileDropZone({ onChange }: FileDropZoneProps) {
             >
                 <UploadCloudIcon className="h-6 w-6 text-gray-400" aria-hidden="true" />
                 <p className="mt-3 text-sm text-gray-700">파일을 이곳에 끌어다 놓으세요</p>
-                <p className="mt-1 text-xs text-gray-500">지원 형식: XLSX, CSV, PDF, PNG, JPEG</p>
+                <p className="mt-1 text-xs text-gray-500">
+                    지원 형식: XLSX, CSV, PDF, PNG, JPEG · 여러 개를 한 번에 고를 수 있습니다
+                </p>
                 <button
                     type="button"
                     onClick={() => inputRef.current?.click()}
@@ -58,9 +65,14 @@ export function FileDropZone({ onChange }: FileDropZoneProps) {
                 <input
                     ref={inputRef}
                     type="file"
+                    multiple
                     accept={ACCEPT_ATTRIBUTE}
                     className="hidden"
-                    onChange={(event) => void accept(event.target.files?.[0] ?? null)}
+                    onChange={(event) => {
+                        accept(event.target.files)
+                        // 같은 파일을 다시 고를 수 있도록 비운다(값이 같으면 change 가 안 뜬다)
+                        event.target.value = ""
+                    }}
                 />
             </div>
 

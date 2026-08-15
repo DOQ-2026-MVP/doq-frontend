@@ -123,7 +123,7 @@ export function IntakePage() {
     const structuringMutation = useRunStructuring()
 
     const [tab, setTab] = useState<Tab>("FILE")
-    const [file, setFile] = useState<File | null>(null)
+    const [files, setFiles] = useState<File[]>([])
     const [manual, setManual] = useState<ManualRecordInput>(EMPTY_MANUAL_INPUT)
     const [error, setError] = useState("")
     const [structuring, setStructuring] = useState(false)
@@ -181,7 +181,7 @@ export function IntakePage() {
     const activeStatus: IngestionStatus | null = structuring ? "STRUCTURING" : (detail?.status ?? null)
 
     async function handleRegister() {
-        const hasFile = file !== null
+        const hasFile = files.length > 0
         const hasManual = isManualInputFilled(manual)
 
         if (!hasFile && !hasManual) {
@@ -197,9 +197,11 @@ export function IntakePage() {
         // 이어붙일 세션이 없거나(최초) 이미 끝난 세션이면 새로 만든다 — 새 세션은 서버가 만들어 id 를 준다.
         let ingestionId = detail?.status === "DRAFT" ? activeId : null
         let added = 0
+        const failed: string[] = []
 
-        if (file) {
-            const processed = await resizeFileIfNeeded(file).catch(() => file)
+        // 업로드 API 는 파일 1건씩 받는다. 첫 건이 세션을 만들고 나머지는 그 세션에 이어붙인다.
+        for (const picked of files) {
+            const processed = await resizeFileIfNeeded(picked).catch(() => picked)
             try {
                 if (ingestionId === null) {
                     const result = await uploadMutation.mutateAsync(processed)
@@ -210,11 +212,11 @@ export function IntakePage() {
                 }
                 added += 1
             } catch (e) {
-                console.error("file upload failed", e)
-                toast.error("파일 업로드에 실패했습니다.")
+                console.error("file upload failed", picked.name, e)
+                failed.push(picked.name)
             }
-            setFile(null)
         }
+        setFiles([])
 
         if (hasManual) {
             const rows = [
@@ -244,6 +246,9 @@ export function IntakePage() {
             }
         }
 
+        if (failed.length > 0) {
+            toast.error(failed.length + "건을 등록하지 못했습니다: " + failed.join(", "))
+        }
         if (added === 0) return
 
         setError("")
@@ -349,7 +354,7 @@ export function IntakePage() {
                             <p className="mb-4 mt-1 text-xs text-gray-400">
                                 PNG, JPEG, PDF는 10MB 이하로 자동 리사이징됩니다.
                             </p>
-                            <FileDropZone onChange={setFile} />
+                            <FileDropZone onSelect={(picked) => setFiles((prev) => [...prev, ...picked])} />
                         </div>
                     ) : (
                         <div role="tabpanel" id="panel-MANUAL" aria-labelledby="tab-MANUAL">
@@ -357,26 +362,49 @@ export function IntakePage() {
                         </div>
                     )}
 
-                    {file && (
+                    {files.length > 0 && (
                         <div className="mt-4 border-t border-gray-100 pt-4">
-                            <p className="text-xs text-gray-500">선택된 파일 (등록 전)</p>
-                            <div className="mt-2 flex items-center gap-3 rounded-xl border border-gray-200 bg-surface px-3 py-2">
-                                <FileSpreadsheetIcon className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-                                <span className="min-w-0 flex-1 truncate text-sm text-gray-900">{file.name}</span>
-                                {needsResize(file.name) && (
-                                    <span className="shrink-0 text-[11px] text-gray-500">
-                                        등록 시 10MB 이하로 리사이징
-                                    </span>
-                                )}
+                            <div className="flex items-center justify-between">
+                                <p className="text-xs text-gray-500">선택된 파일 {files.length}개 (등록 전)</p>
                                 <button
                                     type="button"
-                                    onClick={() => setFile(null)}
-                                    className="shrink-0 rounded-lg p-1 text-gray-400 hover:bg-white hover:text-gray-600"
-                                    aria-label="선택한 파일 제거"
+                                    onClick={() => setFiles([])}
+                                    className="text-xs font-medium text-gray-500 hover:text-gray-900"
                                 >
-                                    <XIcon className="h-4 w-4" aria-hidden="true" />
+                                    모두 지우기
                                 </button>
                             </div>
+                            <ul className="mt-2 space-y-2">
+                                {files.map((picked, index) => (
+                                    <li
+                                        key={picked.name + "-" + picked.size + "-" + index}
+                                        className="flex items-center gap-3 rounded-xl border border-gray-200 bg-surface px-3 py-2"
+                                    >
+                                        <FileSpreadsheetIcon
+                                            className="h-4 w-4 shrink-0 text-primary"
+                                            aria-hidden="true"
+                                        />
+                                        <span className="min-w-0 flex-1 truncate text-sm text-gray-900">
+                                            {picked.name}
+                                        </span>
+                                        {needsResize(picked.name) && (
+                                            <span className="shrink-0 text-[11px] text-gray-500">
+                                                등록 시 10MB 이하로 리사이징
+                                            </span>
+                                        )}
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                setFiles((prev) => prev.filter((_, at) => at !== index))
+                                            }
+                                            className="shrink-0 rounded-lg p-1 text-gray-400 hover:bg-white hover:text-gray-600"
+                                            aria-label={picked.name + " 선택 해제"}
+                                        >
+                                            <XIcon className="h-4 w-4" aria-hidden="true" />
+                                        </button>
+                                    </li>
+                                ))}
+                            </ul>
                         </div>
                     )}
 
