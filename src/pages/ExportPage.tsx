@@ -4,7 +4,9 @@ import { CheckCircle2Icon, DownloadIcon, Loader2Icon, XCircleIcon } from "lucide
 import { toast } from "sonner"
 import { fetchInspections, fetchExportJson, fetchExportCsvBlob } from "@/apis/inspection"
 import type { InspectionRecordDto } from "@/apis/inspection/types"
+import { Pagination } from "@/components/Pagination"
 import { SessionPicker } from "@/components/SessionPicker"
+import { pageSliceOf, totalPagesOf } from "@/shared/lib/paging"
 import { useSelectedIngestionId } from "@/shared/lib/useSelectedIngestionId"
 import { formatText, formatPrice } from "@/shared/utils/format"
 
@@ -69,12 +71,24 @@ export function ExportPage() {
     const inspectionId = detailQuery.data?.inspectionId
     const records = detailQuery.data?.records ?? []
 
+    // 페이지는 세션에 딸린 상태다 — 세션이 바뀌면 목록이 통째로 달라지므로 1쪽으로 돌아간다.
+    const [pageState, setPageState] = useState<{ ingestionId: string | null; page: number }>({
+        ingestionId: null,
+        page: 1,
+    })
     const [result, setResult] = useState<ExportResult | null>(null)
     const [downloading, setDownloading] = useState<Format | null>(null)
 
     const confirmed = useMemo(() => records.filter((record) => record.status === "CONFIRMED"), [records])
     const exportable = confirmed.filter((record) => failureReason(record) === "")
     const failing = confirmed.filter((record) => failureReason(record) !== "")
+
+    const totalPages = totalPagesOf(confirmed.length)
+    // 세션이 바뀌었거나 목록이 줄어 페이지가 범위를 벗어나면 그 자리에서 보정한다(effect 없이).
+    const page = pageState.ingestionId === ingestionId ? Math.min(pageState.page, totalPages) : 1
+    const setPage = (next: number) => setPageState({ ingestionId, page: next })
+    const { start, end } = pageSliceOf(page)
+    const pagedConfirmed = useMemo(() => confirmed.slice(start, end), [confirmed, start, end])
 
     async function handleExport(target: Format) {
         if (!inspectionId) return
@@ -191,7 +205,7 @@ export function ExportPage() {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {confirmed.map((record) => {
+                                        {pagedConfirmed.map((record) => {
                                             const current = currentOf(record)
                                             const reason = failureReason(record)
                                             return (
@@ -244,6 +258,7 @@ export function ExportPage() {
                                 </table>
                             </div>
                         )}
+                        <Pagination page={page} totalCount={confirmed.length} onChange={setPage} />
 
                         <div className="flex flex-wrap gap-2 border-t border-gray-200 px-5 py-4">
                             <button
@@ -331,6 +346,7 @@ export function ExportPage() {
                                 </table>
                             </div>
                         )}
+                        <Pagination page={page} totalCount={confirmed.length} onChange={setPage} />
                     </>
                 )}
             </section>
