@@ -458,7 +458,7 @@ export function InboxPage() {
                                                         title={record.current.supplier}
                                                         className="block max-w-40 truncate"
                                                     >
-                                                        {record.current.supplier}
+                                                        {formatText(record.current.supplier)}
                                                     </span>
                                                 </td>
 

@@ -388,7 +388,9 @@ export function InspectionDetailPage() {
                                             <td className="whitespace-nowrap px-5 py-2.5 text-gray-900">
                                                 {CHANGE_TYPE_LABEL[entry.type] ?? entry.type}
                                             </td>
-                                            <td className="px-5 py-2.5 text-gray-400" colSpan={2}>
+                                            {/* 머리글은 6칸(유형·변경 항목·변경 전·변경 후·상태·변경 시각)이다.
+                                                여기서 3칸을 덮지 않으면 뒤 칸이 하나씩 밀려, 상태 자리에 변경 시각이 찍힌다. */}
+                                            <td className="px-5 py-2.5 text-gray-400" colSpan={3}>
                                                 값 변경 없음
                                             </td>
                                             <td className="whitespace-nowrap px-5 py-2.5 text-gray-700">
