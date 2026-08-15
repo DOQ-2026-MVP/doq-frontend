@@ -20,7 +20,13 @@ import type { InspectionRecordDto } from "@/apis/inspection/types"
 import type { ExceptionFlag, InspectionValues, SourceType } from "@/shared/model/inspection"
 import { deriveDisplayStatus } from "@/shared/utils/structuring"
 import { formatPrice, formatText, formatDateTime } from "@/shared/utils/format"
-import { FIELD_LABEL, SOURCE_TYPE_LABEL, toSourceType } from "@/shared/utils/labels"
+import {
+    FIELD_LABEL,
+    SOURCE_TYPES,
+    SOURCE_TYPE_LABEL,
+    isKnownSourceType,
+    toSourceType,
+} from "@/shared/utils/labels"
 
 const FIELD_ORDER: (keyof InspectionValues)[] = [
     "docId",
@@ -315,11 +321,20 @@ export function InspectionDetailPage() {
                                                 })
                                             }
                                         >
-                                            <option value="XLSX">XLSX</option>
-                                            <option value="CSV">CSV</option>
-                                            <option value="PDF">PDF</option>
-                                            <option value="IMAGE">이미지</option>
-                                            <option value="MANUAL">수기</option>
+                                            {/*
+                                             * 모르는 값이 와도 option 을 만들어 준다. 없으면 브라우저가 첫 옵션으로
+                                             * 떨어뜨려, 손댄 적 없는 원본유형이 XLSX 로 둔갑한다.
+                                             */}
+                                            {!isKnownSourceType(draft.sourceType) && (
+                                                <option value={draft.sourceType}>
+                                                    {draft.sourceType} (알 수 없는 유형)
+                                                </option>
+                                            )}
+                                            {SOURCE_TYPES.map((type) => (
+                                                <option key={type} value={type}>
+                                                    {SOURCE_TYPE_LABEL[type]}
+                                                </option>
+                                            ))}
                                         </select>
                                     ) : (
                                         <input

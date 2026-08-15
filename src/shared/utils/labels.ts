@@ -21,6 +21,12 @@ export const SOURCE_TYPE_LABEL: Record<SourceType, string> = {
     MANUAL: "수기",
 }
 
+export const SOURCE_TYPES = Object.keys(SOURCE_TYPE_LABEL) as SourceType[]
+
+export function isKnownSourceType(value: string): value is SourceType {
+    return value in SOURCE_TYPE_LABEL
+}
+
 /**
  * 서버는 원본유형을 파일 확장자 그대로 준다("PNG"). 화면 쪽 원본유형은 확장자가 아니라
  * 범주(IMAGE)라 그대로 쓰면 값이 어디에도 안 걸린다 — 실제로 `<select>` 가 매칭되는
