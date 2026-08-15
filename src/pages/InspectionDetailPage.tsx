@@ -17,10 +17,18 @@ import {
 } from "@/apis/inspection"
 import { useGetRecordsFor, useIngestionDetail } from "@/apis/ingestion"
 import type { InspectionRecordDto } from "@/apis/inspection/types"
+import { apiErrorMessage } from "@/shared/api/api.base"
 import type { ExceptionFlag, InspectionValues, SourceType } from "@/shared/model/inspection"
 import { deriveDisplayStatus } from "@/shared/utils/structuring"
 import { formatPrice, formatText, formatDateTime } from "@/shared/utils/format"
-import { FIELD_LABEL, SOURCE_TYPE_LABEL } from "@/shared/utils/labels"
+import {
+    FIELD_LABEL,
+    fieldLabel,
+    SOURCE_TYPES,
+    SOURCE_TYPE_LABEL,
+    isKnownSourceType,
+    sourceTypeLabel,
+} from "@/shared/utils/labels"
 
 const FIELD_ORDER: (keyof InspectionValues)[] = [
     "docId",
@@ -122,6 +130,7 @@ export function InspectionDetailPage() {
     }, [dto])
 
     const [draft, setDraft] = useState<InspectionValues | null>(null)
+    const [saveError, setSaveError] = useState("")
     const [memoDialog, setMemoDialog] = useState<null | "CONFIRM" | "REJECT" | "REVIEW">(null)
     const [unsaved, setUnsaved] = useState<PendingAction | null>(null)
     const loadedRecordId = useRef<string | undefined>(undefined)
@@ -182,10 +191,14 @@ export function InspectionDetailPage() {
         try {
             await patchMutation.mutateAsync({ recordId: record.id, body: draft })
             invalidateInspection()
+            setSaveError("")
             toast.success("수정되었습니다.")
         } catch (e) {
             console.error(e)
-            toast.error("수정에 실패했습니다.")
+            // 어느 칸이 왜 막혔는지는 서버가 필드별로 준다 — 저장 버튼 옆에 그대로 남겨둔다.
+            const message = apiErrorMessage(e, "수정에 실패했습니다.", fieldLabel)
+            setSaveError(message)
+            toast.error(message)
         }
     }
 
@@ -277,7 +290,7 @@ export function InspectionDetailPage() {
                                 <dt className="text-xs text-gray-500">{FIELD_LABEL[field]}</dt>
                                 <dd className="col-span-2 text-sm text-gray-900">
                                     {field === "sourceType"
-                                        ? (SOURCE_TYPE_LABEL[record.observed.sourceType] ?? record.observed.sourceType)
+                                        ? sourceTypeLabel(record.observed.sourceType)
                                         : PRICE_FIELDS.includes(field)
                                           ? formatPrice(record.observed[field])
                                           : formatText(record.observed[field])}
@@ -315,11 +328,21 @@ export function InspectionDetailPage() {
                                                 })
                                             }
                                         >
-                                            <option value="XLSX">XLSX</option>
-                                            <option value="CSV">CSV</option>
-                                            <option value="PDF">PDF</option>
-                                            <option value="IMAGE">이미지</option>
-                                            <option value="MANUAL">수기</option>
+                                            {/*
+                                             * 규약에 없는 값(서버가 주는 "PNG" 같은 확장자)이 와도 그 값을 담은
+                                             * option 을 만들어 준다. 없으면 브라우저가 첫 옵션으로 떨어뜨려,
+                                             * 손댄 적 없는 원본유형이 XLSX 로 둔갑한 채 저장까지 된다.
+                                             */}
+                                            {!isKnownSourceType(draft.sourceType) && (
+                                                <option value={draft.sourceType}>
+                                                    {sourceTypeLabel(draft.sourceType)}
+                                                </option>
+                                            )}
+                                            {SOURCE_TYPES.map((type) => (
+                                                <option key={type} value={type}>
+                                                    {SOURCE_TYPE_LABEL[type]}
+                                                </option>
+                                            ))}
                                         </select>
                                     ) : (
                                         <input
@@ -420,10 +443,16 @@ export function InspectionDetailPage() {
 
             <div className="fixed bottom-0 left-0 right-0 z-10 border-t border-gray-200 bg-white/95 px-4 py-3 backdrop-blur md:px-8">
                 <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-end gap-2">
-                    {missingRequired && (
-                        <p className="mr-auto text-xs text-gray-500">
-                            필수값 누락 예외가 있어 승인할 수 없습니다. 현재 검수값을 보완한 뒤 저장해 주세요.
+                    {saveError !== "" ? (
+                        <p className="mr-auto whitespace-pre-line text-xs text-red-600" role="alert">
+                            {saveError}
                         </p>
+                    ) : (
+                        missingRequired && (
+                            <p className="mr-auto text-xs text-gray-500">
+                                필수값 누락 예외가 있어 승인할 수 없습니다. 현재 검수값을 보완한 뒤 저장해 주세요.
+                            </p>
+                        )
                     )}
                     <button
                         type="button"

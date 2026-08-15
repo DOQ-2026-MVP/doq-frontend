@@ -166,8 +166,7 @@ export function InboxPage() {
      */
     const [searchParams, setSearchParams] = useSearchParams()
 
-    const keyword = searchParams.get("q") ?? ""
-
+    const urlKeyword = searchParams.get("q") ?? ""
     const statusFilters = useMemo(() => {
         const raw = searchParams.get("status")
         return raw ? (raw.split(",").filter(Boolean) as RecordStatus[]) : []
@@ -175,10 +174,7 @@ export function InboxPage() {
 
     const page = Math.max(1, Number(searchParams.get("page") ?? 1) || 1)
 
-    const [searchInput, setSearchInput] = useState(keyword)
-    const isComposing = useRef(false)
-
-    const patchParams = (changes: Record<string, string | null>) =>
+    const patchParams = (changes: Record<string, string | null>, options?: { replace?: boolean }) =>
         setSearchParams((prev) => {
             const next = new URLSearchParams(prev)
 
@@ -188,48 +184,45 @@ export function InboxPage() {
             })
 
             return next
-        })
+        }, options)
 
+    /**
+     * 검색어는 화면 state 로 들고, URL 반영만 뒤로 미룬다.
+     *
+     * URL 을 곧바로 input 의 value 로 쓰면 한 글자마다 라우터 네비게이션이 돌고,
+     * 라우터는 그 갱신을 startTransition 으로 미룬다. 그 사이 React 가 조합 중인
+     * input 에 낡은 value 를 되써넣으면 브라우저가 IME 조합을 강제로 확정해버린다.
+     * "가온푸드" 가 "ㄱ가강오온ㅍ푸푿드" 로 찍히던 원인.
+     */
+    const [keyword, setKeyword] = useState(urlKeyword)
+    const syncedKeyword = useRef(urlKeyword)
+
+    // 뒤로가기·링크 진입처럼 URL 이 바깥에서 바뀐 경우에만 입력창을 되맞춘다.
     useEffect(() => {
-        if (!isComposing.current && searchInput !== keyword) {
-            setSearchInput(keyword)
-        }
+        if (urlKeyword === syncedKeyword.current) return
+        syncedKeyword.current = urlKeyword
+        setKeyword(urlKeyword)
+    }, [urlKeyword])
+
+    // 타이핑이 멎으면 URL 에 반영한다. replace 로 — 글자마다 히스토리가 쌓이면 뒤로가기가 막힌다.
+    useEffect(() => {
+        if (keyword === syncedKeyword.current) return
+        const timer = setTimeout(() => {
+            syncedKeyword.current = keyword
+            // 조건이 바뀌면 1페이지로 — 필터를 좁혔는데 빈 페이지에 남아 있으면 안 된다.
+            patchParams({ q: keyword, page: null }, { replace: true })
+        }, 200)
+        return () => clearTimeout(timer)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [keyword])
 
-    useEffect(() => {
-        if (isComposing.current) return
-
-        const timer = window.setTimeout(() => {
-            if (searchInput === keyword) return
-
-            patchParams({
-                q: searchInput,
-                page: null,
-            })
-        }, 300)
-
-        return () => window.clearTimeout(timer)
-    }, [searchInput, keyword])
-
-    const handleSearchChange = (value: string) => {
-        setSearchInput(value)
-    }
-
-    const handleCompositionStart = () => {
-        isComposing.current = true
-    }
-
-    const handleCompositionEnd = (event: React.CompositionEvent<HTMLInputElement>) => {
-        isComposing.current = false
-
-        const value = event.currentTarget.value
-        setSearchInput(value)
-
-        patchParams({
-            q: value,
-            page: null,
-        })
-    }
+    // 아직 URL 에 안 실린 검색어까지 얹어서 상세로 넘긴다 — 타이핑 직후 행을 눌러도 검색어가 살아 돌아온다.
+    const detailQuery = useMemo(() => {
+        const next = new URLSearchParams(searchParams)
+        if (keyword) next.set("q", keyword)
+        else next.delete("q")
+        return next.toString()
+    }, [searchParams, keyword])
 
     /**
      * 검수 대상으로 반영된 순서를 그대로 유지하고(새 항목은 맨 뒤),
@@ -262,7 +255,7 @@ export function InboxPage() {
 
     // 필터 결과가 줄어 현재 페이지가 사라지면 마지막 페이지로 당긴다.
     useEffect(() => {
-        if (page > totalPages) patchParams({ page: totalPages > 1 ? String(totalPages) : null })
+        if (page > totalPages) patchParams({ page: totalPages > 1 ? String(totalPages) : null }, { replace: true })
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [page, totalPages])
 
@@ -308,10 +301,8 @@ export function InboxPage() {
                             aria-hidden="true"
                         />
                         <input
-                            value={searchInput}
-                            onChange={(event) => handleSearchChange(event.target.value)}
-                            onCompositionStart={handleCompositionStart}
-                            onCompositionEnd={handleCompositionEnd}
+                            value={keyword}
+                            onChange={(event) => setKeyword(event.target.value)}
                             placeholder="문서ID, 공급사, 품목명 검색"
                             aria-label="검수 대상 검색"
                             className="w-full rounded-xl border border-gray-300 py-2 pl-9 pr-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary-100"
@@ -420,12 +411,15 @@ export function InboxPage() {
                                         ))}
                                     </tr>
                                 </thead>
+
                                 <tbody>
                                     {paged.map(({ record, displayNo }) => {
                                         const normalizedChanged =
                                             record.current.normalizedItemName !== record.current.rawItemName
+
                                         const goToDetail = () =>
-                                            navigate("/inspection/" + record.id + "?" + searchParams.toString())
+                                            navigate("/inspection/" + record.id + "?" + detailQuery)
+
                                         return (
                                             <tr
                                                 key={record.id}
@@ -445,17 +439,20 @@ export function InboxPage() {
                                                         <span className="shrink-0 text-xs text-gray-400">
                                                             {String(displayNo).padStart(2, "0")}
                                                         </span>
+
                                                         <span
                                                             title={record.current.docId}
                                                             className="truncate text-sm font-semibold text-gray-900"
                                                         >
                                                             {record.current.docId}
                                                         </span>
+
                                                         <span className="shrink-0 text-xs text-gray-400">
                                                             {UPLOAD_METHOD_LABEL[record.uploadMethod]}
                                                         </span>
                                                     </div>
                                                 </td>
+
                                                 <td className="px-4 py-3 text-gray-700">
                                                     <span
                                                         title={record.current.supplier}
@@ -464,6 +461,7 @@ export function InboxPage() {
                                                         {record.current.supplier}
                                                     </span>
                                                 </td>
+
                                                 <td className="px-4 py-3">
                                                     <div className="max-w-55">
                                                         <span
@@ -477,6 +475,7 @@ export function InboxPage() {
                                                         >
                                                             {formatText(record.current.normalizedItemName)}
                                                         </span>
+
                                                         <span
                                                             title={record.current.rawItemName}
                                                             className={
@@ -488,6 +487,7 @@ export function InboxPage() {
                                                         </span>
                                                     </div>
                                                 </td>
+
                                                 <td className="px-4 py-3 text-gray-700">
                                                     <span
                                                         title={record.current.spec}
@@ -496,6 +496,7 @@ export function InboxPage() {
                                                         {formatText(record.current.spec)}
                                                     </span>
                                                 </td>
+
                                                 <td className="px-4 py-3 text-gray-700">
                                                     <span
                                                         title={record.current.unit}
@@ -504,20 +505,25 @@ export function InboxPage() {
                                                         {formatText(record.current.unit)}
                                                     </span>
                                                 </td>
+
                                                 <td className="whitespace-nowrap px-4 py-3">
                                                     <span className="block text-sm font-medium text-gray-900">
                                                         {formatPrice(record.current.priceAfter)}
                                                     </span>
+
                                                     <span className="mt-0.5 block text-xs text-gray-400">
                                                         {formatPrice(record.current.priceBefore)}
                                                     </span>
                                                 </td>
+
                                                 <td className="whitespace-nowrap px-4 py-3 text-gray-700">
                                                     {formatText(record.current.effectiveDate)}
                                                 </td>
+
                                                 <td className="whitespace-nowrap px-4 py-3">
                                                     <StatusBadge status={record.status} />
                                                 </td>
+
                                                 <td className="whitespace-nowrap px-4 py-3">
                                                     {record.flags.length === 0 ? (
                                                         <span className="text-gray-400">-</span>
