@@ -13,9 +13,9 @@ export default defineConfig({
   ],
 
   // 로컬 확인용 — 백엔드(:8080)로 프록시. 커밋 전에 되돌릴 것.
-  server: {
-    proxy: { "/api": "http://localhost:8080" },
-  },
+  // server: {
+  //   proxy: { "/api": "http://localhost:8080" },
+  // },
 
   resolve: {
     alias: {
