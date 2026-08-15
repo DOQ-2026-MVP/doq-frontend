@@ -5,6 +5,7 @@ import { CheckCircle2Icon, FileSpreadsheetIcon, Loader2Icon, PencilLineIcon, Plu
 import { useQueryClient } from "@tanstack/react-query"
 import { FileDropZone } from "@/components/FileDropZone"
 import {
+    type ManualFieldErrors,
     type ManualRecordInput,
     EMPTY_MANUAL_INPUT,
     isManualInputFilled,
@@ -29,8 +30,7 @@ import {
 import { useRunStructuring } from "@/apis/structuring"
 import { fetchInspections } from "@/apis/inspection"
 import type { IngestionStatus } from "@/shared/model/inspection"
-import { apiErrorMessage } from "@/shared/api/api.base"
-import { fieldLabel } from "@/shared/utils/labels"
+import { parseApiError } from "@/shared/api/api.base"
 import { rememberIngestionId } from "@/shared/lib/useSelectedIngestionId"
 import { formatDateTime } from "@/shared/utils/format"
 import { resizeFileIfNeeded } from "@/shared/utils/uploadRows"
@@ -152,6 +152,9 @@ export function IntakePage() {
 
     const [tab, setTab] = useState<Tab>("FILE")
     const [manual, setManual] = useState<ManualRecordInput>(EMPTY_MANUAL_INPUT)
+    // 검증 실패는 칸별로 — 어느 칸이 왜 막혔는지는 그 칸 아래에서만 말한다.
+    const [manualErrors, setManualErrors] = useState<ManualFieldErrors>({})
+    // 어느 칸에도 붙지 않는 실패(네트워크·서버 오류)만 폼 아래 한 줄로 남는다.
     const [error, setError] = useState("")
     const [structuring, setStructuring] = useState(false)
     const [sending, setSending] = useState<SendingUpload[]>([])
@@ -257,12 +260,9 @@ export function IntakePage() {
 
     /** 수기 입력 등록 — 파일과 달리 다 채운 뒤 눌러야 하므로 버튼이 남는다. */
     async function handleRegisterManual() {
-        if (!isManualInputFilled(manual)) {
-            setError("문서ID를 입력해 주세요.")
-            return
-        }
-        if (!hasManualRequiredValue(manual)) {
-            setError("문서ID를 입력해 주세요.")
+        if (!isManualInputFilled(manual) || !hasManualRequiredValue(manual)) {
+            setError("")
+            setManualErrors({ docId: "문서ID를 입력해 주세요." })
             return
         }
 
@@ -286,6 +286,7 @@ export function IntakePage() {
                 await postRecordsMutation.mutateAsync({ ingestionId, body: rows })
             }
             setManual(EMPTY_MANUAL_INPUT)
+            setManualErrors({})
             setError("")
             queryClient.invalidateQueries({ queryKey: ["ingestion"] })
             toast.success("1건이 등록되었습니다")
@@ -293,10 +294,13 @@ export function IntakePage() {
         } catch (e) {
             console.error("manual upload failed", e)
 
-            // 서버가 어떤 칸이 왜 틀렸는지 필드별로 알려준다 — 뭉뚱그린 실패 문구 대신 그걸 그대로 보여준다.
-            const message = apiErrorMessage(e, "수기 입력 등록에 실패했습니다.", fieldLabel)
+            // 사유는 전부 화면 안에 남긴다 — 칸을 특정할 수 있으면 그 칸 아래에, 아니면 폼 아래 한 줄로.
+            // 토스트에는 "실패했다"는 사실만 남긴다(필드 오류는 절대 싣지 않는다).
+            const fallback = "수기 입력 등록에 실패했습니다."
+            const { fields, message } = parseApiError(e, "")
+            setManualErrors(fields as ManualFieldErrors)
             setError(message)
-            toast.error(message)
+            toast.error(fallback)
         }
     }
 
@@ -338,6 +342,7 @@ export function IntakePage() {
     function handleNewSession() {
         setActiveId(null)
         setManual(EMPTY_MANUAL_INPUT)
+        setManualErrors({})
         setError("")
         toast.success("새 등록 세션을 시작합니다.")
     }
@@ -384,6 +389,7 @@ export function IntakePage() {
                                 aria-controls={"panel-" + item.value}
                                 onClick={() => {
                                     setTab(item.value)
+                                    setManualErrors({})
                                     setError("")
                                 }}
                                 className={
@@ -410,7 +416,25 @@ export function IntakePage() {
                         </div>
                     ) : (
                         <div role="tabpanel" id="panel-MANUAL" aria-labelledby="tab-MANUAL">
-                            <RawRecordForm idPrefix="intake" value={manual} onChange={setManual} />
+                            <RawRecordForm
+                                idPrefix="intake"
+                                value={manual}
+                                errors={manualErrors}
+                                onChange={(next) => {
+                                    // 손댄 칸의 오류는 즉시 걷는다 — 고치는 중에도 빨간 줄이 남아 있으면 무엇이 남았는지 흐려진다.
+                                    setManualErrors((prev) => {
+                                        const cleared = Object.fromEntries(
+                                            Object.entries(prev).filter(
+                                                ([field]) =>
+                                                    next[field as keyof ManualRecordInput] ===
+                                                    manual[field as keyof ManualRecordInput]
+                                            )
+                                        )
+                                        return cleared as ManualFieldErrors
+                                    })
+                                    setManual(next)
+                                }}
+                            />
                         </div>
                     )}
 

@@ -22,11 +22,20 @@ export const fetchExportCsvBlob = (inspectionId: number | string) =>
 export const postConfirmInspection = (inspectionId: number | string) =>
     unwrap(ApiHelper.post<ApiEnvelope<InspectionBulkConfirmResult>>(API_PATH.INSPECTION.CONFIRM(inspectionId)))
 
-export const postConfirmRecord = (recordId: number | string, body: { memo?: string } = {}) =>
-    unwrap(ApiHelper.post<ApiEnvelope<InspectionRecordDto>>(API_PATH.INSPECTION.RECORD_CONFIRM(recordId), body))
+/*
+ * 상태 전이 3종(확정·반려·재검토)은 모두 경로 변수만 받는다 — 바디가 없다.
+ * 예전엔 `{ memo }` 를 실어 보냈지만 서버가 읽지 않고 버렸다. 메모는 편집(PATCH)이 들고 간다.
+ */
 
-export const postRejectRecord = (recordId: number | string, body: { memo?: string } = {}) =>
-    unwrap(ApiHelper.post<ApiEnvelope<InspectionRecordDto>>(API_PATH.INSPECTION.RECORD_REJECT(recordId), body))
+export const postConfirmRecord = (recordId: number | string) =>
+    unwrap(ApiHelper.post<ApiEnvelope<InspectionRecordDto>>(API_PATH.INSPECTION.RECORD_CONFIRM(recordId)))
+
+export const postRejectRecord = (recordId: number | string) =>
+    unwrap(ApiHelper.post<ApiEnvelope<InspectionRecordDto>>(API_PATH.INSPECTION.RECORD_REJECT(recordId)))
+
+/** 재검토 — 확정/반려된 레코드를 신규로 되돌린다(편집본은 관찰값으로, 메모는 서버가 지운다). */
+export const postResetRecord = (recordId: number | string) =>
+    unwrap(ApiHelper.post<ApiEnvelope<InspectionRecordDto>>(API_PATH.INSPECTION.RECORD_RESET(recordId)))
 
 /** ingestionId 1개의 검수 상세(그 세션의 레코드 전부)를 가져온다. 없으면 404. */
 export const fetchInspections = (ingestionId: number | string) =>
@@ -116,8 +125,7 @@ export function useConfirmInspection() {
 export function useConfirmRecord() {
     const qc = useQueryClient()
     return (useMutation as any)({
-        mutationFn: ({ recordId, memo }: { recordId: number | string; memo?: string }) =>
-            postConfirmRecord(recordId, { memo }),
+        mutationFn: ({ recordId }: { recordId: number | string }) => postConfirmRecord(recordId),
         onSuccess: () => qc.invalidateQueries({ queryKey: ["inspection"] }),
     })
 }
@@ -125,8 +133,15 @@ export function useConfirmRecord() {
 export function useRejectRecord() {
     const qc = useQueryClient()
     return (useMutation as any)({
-        mutationFn: ({ recordId, memo }: { recordId: number | string; memo?: string }) =>
-            postRejectRecord(recordId, { memo }),
+        mutationFn: ({ recordId }: { recordId: number | string }) => postRejectRecord(recordId),
+        onSuccess: () => qc.invalidateQueries({ queryKey: ["inspection"] }),
+    })
+}
+
+export function useResetRecord() {
+    const qc = useQueryClient()
+    return (useMutation as any)({
+        mutationFn: ({ recordId }: { recordId: number | string }) => postResetRecord(recordId),
         onSuccess: () => qc.invalidateQueries({ queryKey: ["inspection"] }),
     })
 }
@@ -138,11 +153,13 @@ export default {
     postConfirmInspection,
     postConfirmRecord,
     postRejectRecord,
+    postResetRecord,
     useInspectionDetail,
     useExportJson,
     useExportCsv,
     useConfirmInspection,
     useConfirmRecord,
     useRejectRecord,
+    useResetRecord,
     fetchInspections,
 }

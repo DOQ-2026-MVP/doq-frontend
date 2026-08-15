@@ -143,27 +143,34 @@ export function apiError(e: unknown): ApiError | null {
     return error && typeof error.message === "string" ? error : null
 }
 
-/**
- * 검증 실패를 사람이 읽는 한 덩어리로 만든다.
- *
- * 서버가 `fields` 를 주므로 필드 이름을 화면 라벨로 바꿔 "적용일: 필수입니다" 형태로 붙인다.
- * (fields 가 없는 실패는 message 하나뿐이라 그대로 쓴다.)
- */
-export function apiErrorMessage(e: unknown, fallback: string, label?: (field: string) => string): string {
-    const error = apiError(e)
-    if (!error) return fallback
-    const fields = error.fields
-    if (!fields || fields.length === 0) return error.message || fallback
+export interface ParsedApiError {
+    /** 칸별 사유 — 해당 입력 바로 아래에 붙인다. */
+    fields: Record<string, string>
+    /** 어느 칸에도 붙지 않은 사유. 폼 전체에 한 줄로 남기거나 토스트에 띄운다. */
+    message: string
+}
 
-    return fields
-        .map(({ field, reason }) => {
-            // 리스트 바디의 `[0].docId` 에서 행 번호와 필드명을 분리한다.
-            const match = /^\[(\d+)\]\.(.+)$/.exec(field)
-            const name = match ? match[2] : field
-            const row = match ? `${Number(match[1]) + 1}행 ` : ""
-            // 서버 메시지가 이미 "문서ID는 필수입니다"처럼 필드를 말하면 라벨을 겹쳐 붙이지 않는다.
-            const labeled = label?.(name) ?? name
-            return reason.includes(labeled) ? `${row}${reason}` : `${row}${labeled}: ${reason}`
-        })
-        .join("\n")
+/**
+ * 검증 실패를 "어느 칸의 말인지" 기준으로 갈라 준다.
+ *
+ * 서버가 사유를 `fields` 로 준다. 리스트 바디는 `[0].docId` 처럼 행 번호가 앞에 붙는데,
+ * 수기 입력은 한 번에 한 행만 보내므로 행 번호를 떼고 필드명만 남긴다 — 화면에 "1행" 같은
+ * 접두사가 나갈 이유가 없다.
+ *
+ * 칸에 매이지 않는 실패(네트워크·상태 충돌 등)는 `fields` 없이 오므로 `message` 로 남는다.
+ */
+export function parseApiError(e: unknown, fallback: string): ParsedApiError {
+    const error = apiError(e)
+    if (!error) return { fields: {}, message: fallback }
+
+    const given = error.fields
+    if (!given || given.length === 0) return { fields: {}, message: error.message || fallback }
+
+    const fields: Record<string, string> = {}
+    for (const { field, reason } of given) {
+        const name = /^\[\d+\]\.(.+)$/.exec(field)?.[1] ?? field
+        // 한 칸에 사유가 여럿이면 첫 번째만 — 인풋 아래는 한 줄 자리다.
+        if (!(name in fields)) fields[name] = reason
+    }
+    return { fields, message: "" }
 }

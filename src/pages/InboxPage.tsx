@@ -288,7 +288,7 @@ export function InboxPage() {
                                 : "bg-primary text-white hover:bg-primary-700")
                         }
                     >
-                        {confirmMutation.isPending ? "일괄 승인 중..." : "전체 승인 (남은 신규 건)"}
+                        {confirmMutation.isPending ? "일괄 승인 중..." : "전체 승인"}
                     </button>
                 </div>
             </div>

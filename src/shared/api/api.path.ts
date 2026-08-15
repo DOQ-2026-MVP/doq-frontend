@@ -7,6 +7,8 @@ export const API_PATH = {
         CONFIRM: (inspectionId: number | string) => `/inspection/${inspectionId}/confirm`,
         RECORD_CONFIRM: (recordId: number | string) => `/inspection/records/${recordId}/confirm`,
         RECORD_REJECT: (recordId: number | string) => `/inspection/records/${recordId}/reject`,
+        /** 재검토 — 편집본을 관찰값으로 되돌리고 상태를 NEW 로. 반려(REJECTED)와 달리 신규 흐름으로 복귀한다. */
+        RECORD_RESET: (recordId: number | string) => `/inspection/records/${recordId}/reset`,
         RECORD_BASE: (recordId: number | string) => `/inspection/records/${recordId}`,
         RECORD_CHANGELOG: (recordId: number | string) => `/inspection/records/${recordId}/changelog`,
     },

@@ -49,6 +49,12 @@ const KIND_LABEL: Record<PreviewKind, string> = {
     TABLE: "표 원본",
 }
 
+/**
+ * 프리뷰 본문 높이. 옆 카드의 검수 메모가 같은 높이를 써야 두 카드의 아래 필드 행이 나란히 선다 —
+ * 한쪽만 바꾸면 행이 통째로 어긋나므로 같이 움직인다.
+ */
+export const PREVIEW_BODY_HEIGHT = "h-72"
+
 const MIN_SCALE = 0.25
 const MAX_SCALE = 4
 
@@ -279,9 +285,8 @@ export function SourcePreview({ fileName, uploadRowNo, ingestionId, uploadId }: 
         }
     }, [canFetch, ingestionId, uploadId, fileName, kind])
 
-    if (!fileName) return null
-
-    const viewerLabel = KIND_LABEL[kind]
+    // 원본 파일이 없어도(수기 입력) 자리는 지킨다 — 여기서 사라지면 옆 카드의 검수값 행과 높이가 어긋난다.
+    const viewerLabel = fileName ? KIND_LABEL[kind] : "원본 없음"
     const truncated = content?.kind === "TABLE" && content.rows.length >= SHEET_MAX_ROWS
 
     const surface = (className: string) => {
@@ -330,31 +335,35 @@ export function SourcePreview({ fileName, uploadRowNo, ingestionId, uploadId }: 
             </div>
 
             <div className="mt-2 overflow-hidden rounded-xl border border-gray-200">
-                {surface("h-72 w-full")}
+                {surface(PREVIEW_BODY_HEIGHT + " w-full")}
                 <div className="flex items-center justify-between gap-3 border-t border-gray-200 bg-white px-3 py-2">
                     <span className="min-w-0 truncate text-xs text-gray-600">
-                        {fileName}
-                        {uploadRowNo !== null && <span className="text-gray-400">{" / " + uploadRowNo + "행"}</span>}
+                        {fileName ?? <span className="text-gray-400">첨부된 원본 파일이 없습니다</span>}
+                        {fileName && uploadRowNo !== null && (
+                            <span className="text-gray-400">{" / " + uploadRowNo + "행"}</span>
+                        )}
                     </span>
                     <div className="flex shrink-0 items-center gap-3">
                         {downloadUrl && (
                             <a
                                 href={downloadUrl}
-                                download={fileName}
+                                download={fileName ?? undefined}
                                 className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-900"
                             >
                                 <DownloadIcon className="h-3.5 w-3.5" aria-hidden="true" />
                                 내려받기
                             </a>
                         )}
-                        <button
-                            type="button"
-                            onClick={() => setExpanded(true)}
-                            className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
-                        >
-                            <MaximizeIcon className="h-3.5 w-3.5" aria-hidden="true" />
-                            크게 보기
-                        </button>
+                        {fileName && (
+                            <button
+                                type="button"
+                                onClick={() => setExpanded(true)}
+                                className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                            >
+                                <MaximizeIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                                크게 보기
+                            </button>
+                        )}
                     </div>
                 </div>
             </div>
