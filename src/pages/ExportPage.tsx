@@ -4,7 +4,10 @@ import { CheckCircle2Icon, DownloadIcon, Loader2Icon, XCircleIcon } from "lucide
 import { toast } from "sonner"
 import { fetchInspections, fetchExportJson, fetchExportCsvBlob } from "@/apis/inspection"
 import type { InspectionRecordDto } from "@/apis/inspection/types"
-import { getStructuredIngestionIds } from "@/shared/lib/structuredSessions"
+import { Pagination } from "@/components/Pagination"
+import { SessionPicker } from "@/components/SessionPicker"
+import { pageSliceOf, totalPagesOf } from "@/shared/lib/paging"
+import { useSelectedIngestionId } from "@/shared/lib/useSelectedIngestionId"
 import { formatText, formatPrice } from "@/shared/utils/format"
 
 type Format = "JSON" | "CSV"
@@ -57,23 +60,35 @@ function download(fileName: string, content: BlobPart, mime: string) {
 }
 
 export function ExportPage() {
-    const ingestionIds = getStructuredIngestionIds()
-    const latestIngestionId = ingestionIds[ingestionIds.length - 1]
+    // 내보내기도 등록 세션 단위다 — 대상 세션은 URL 이 들고 있다(검수 목록과 같은 선택기).
+    const { ingestionId, select } = useSelectedIngestionId()
 
     const detailQuery = useQuery({
-        queryKey: ["inspection", "list", latestIngestionId],
-        queryFn: () => fetchInspections(latestIngestionId),
-        enabled: !!latestIngestionId,
+        queryKey: ["inspection", "list", ingestionId],
+        queryFn: () => fetchInspections(ingestionId as string),
+        enabled: !!ingestionId,
     })
     const inspectionId = detailQuery.data?.inspectionId
     const records = detailQuery.data?.records ?? []
 
+    // 페이지는 세션에 딸린 상태다 — 세션이 바뀌면 목록이 통째로 달라지므로 1쪽으로 돌아간다.
+    const [pageState, setPageState] = useState<{ ingestionId: string | null; page: number }>({
+        ingestionId: null,
+        page: 1,
+    })
     const [result, setResult] = useState<ExportResult | null>(null)
     const [downloading, setDownloading] = useState<Format | null>(null)
 
     const confirmed = useMemo(() => records.filter((record) => record.status === "CONFIRMED"), [records])
     const exportable = confirmed.filter((record) => failureReason(record) === "")
     const failing = confirmed.filter((record) => failureReason(record) !== "")
+
+    const totalPages = totalPagesOf(confirmed.length)
+    // 세션이 바뀌었거나 목록이 줄어 페이지가 범위를 벗어나면 그 자리에서 보정한다(effect 없이).
+    const page = pageState.ingestionId === ingestionId ? Math.min(pageState.page, totalPages) : 1
+    const setPage = (next: number) => setPageState({ ingestionId, page: next })
+    const { start, end } = pageSliceOf(page)
+    const pagedConfirmed = useMemo(() => confirmed.slice(start, end), [confirmed, start, end])
 
     async function handleExport(target: Format) {
         if (!inspectionId) return
@@ -107,12 +122,17 @@ export function ExportPage() {
 
     return (
         <div className="mx-auto w-full max-w-5xl">
-            <h1 className="text-xl font-semibold text-gray-900">내보내기</h1>
-            <p className="mt-1 text-sm text-gray-500">
-                가장 최근 검수 세션의 승인된 검수값만 내보냅니다. 다운로드 전에 대상 데이터를 확인할 수 있습니다.
-            </p>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                    <h1 className="text-xl font-semibold text-gray-900">내보내기</h1>
+                    <p className="mt-1 text-sm text-gray-500">
+                        선택한 등록 세션의 승인된 검수값만 내보냅니다. 다운로드 전에 대상 데이터를 확인할 수 있습니다.
+                    </p>
+                </div>
+                <SessionPicker ingestionId={ingestionId} onSelect={select} />
+            </div>
 
-            {!latestIngestionId ? (
+            {!ingestionId ? (
                 <section className="mt-6 rounded-xl border border-gray-200 bg-white p-10 text-center shadow-sm">
                     <p className="text-sm text-gray-500">아직 구조화된 검수 세션이 없습니다.</p>
                 </section>
@@ -185,7 +205,7 @@ export function ExportPage() {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {confirmed.map((record) => {
+                                        {pagedConfirmed.map((record) => {
                                             const current = currentOf(record)
                                             const reason = failureReason(record)
                                             return (
@@ -238,6 +258,7 @@ export function ExportPage() {
                                 </table>
                             </div>
                         )}
+                        <Pagination page={page} totalCount={confirmed.length} onChange={setPage} />
 
                         <div className="flex flex-wrap gap-2 border-t border-gray-200 px-5 py-4">
                             <button
@@ -325,6 +346,7 @@ export function ExportPage() {
                                 </table>
                             </div>
                         )}
+                        <Pagination page={page} totalCount={confirmed.length} onChange={setPage} />
                     </>
                 )}
             </section>

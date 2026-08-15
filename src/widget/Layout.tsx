@@ -1,4 +1,4 @@
-import { NavLink, Outlet } from "react-router-dom"
+import { Link, NavLink, Outlet } from "react-router-dom"
 import { DownloadIcon, InboxIcon, UploadIcon } from "lucide-react"
 
 const NAV_ITEMS = [
@@ -11,12 +11,18 @@ export function Layout() {
     return (
         <div className="flex min-h-full w-full flex-col bg-page">
             <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center border-b border-gray-200 bg-white px-4 md:px-6">
-                <div className="flex items-center gap-2">
+                <Link
+                    to="/"
+                    aria-label="메인으로"
+                    className="flex items-center gap-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-100"
+                >
                     <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary text-xs font-bold text-gold">
                         C
                     </span>
-                    <span className="text-sm font-semibold text-gray-900">ComfoziAI 구매 증빙 인박스</span>
-                </div>
+                    <span className="text-sm font-semibold text-gray-900 hover:underline">
+                        ComfoziAI 구매 증빙 인박스
+                    </span>
+                </Link>
             </header>
 
             <div className="flex min-h-0 flex-1 flex-col md:flex-row">

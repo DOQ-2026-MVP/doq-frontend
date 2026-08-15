@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { useLocation, useNavigate, useParams } from "react-router-dom"
+import { useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { useQueryClient } from "@tanstack/react-query"
 import { ArrowLeftIcon, Loader2Icon } from "lucide-react"
 import { toast } from "sonner"
@@ -9,13 +9,13 @@ import { SourcePreview } from "@/components/SourcePreview"
 import { StatusBadge } from "@/components/StatusBadge"
 import { UnsavedChangesDialog } from "@/components/UnsavedChangesDialog"
 import {
-    useInspectionDetail,
+    useInspectionsByIngestion,
     useRecordChangelog,
     usePatchRecord,
     useConfirmRecord,
     useRejectRecord,
 } from "@/apis/inspection"
-import { useGetRecordsFor } from "@/apis/ingestion"
+import { useGetRecordsFor, useIngestionDetail } from "@/apis/ingestion"
 import type { InspectionRecordDto } from "@/apis/inspection/types"
 import type { ExceptionFlag, InspectionValues, SourceType } from "@/shared/model/inspection"
 import { deriveDisplayStatus } from "@/shared/utils/structuring"
@@ -72,12 +72,13 @@ function toValues(values: InspectionRecordDto["current"]): InspectionValues {
 export function InspectionDetailPage() {
     // URL/CRUD의 식별자는 검수 레코드 PK(dto.id)다. dto.ingestionRecordId는 인입 원본 행 FK라 API 경로에 쓰면 안 된다.
     const { id } = useParams<{ id: string }>()
+    const [searchParams] = useSearchParams()
     const navigate = useNavigate()
-    const location = useLocation()
     const queryClient = useQueryClient()
 
-    const stateInspectionId = (location.state as { inspectionId?: string; ingestionId?: string } | null)?.inspectionId
-    const detailQuery = useInspectionDetail(stateInspectionId)
+    // 어느 세션의 검수인지는 URL 이 들고 있다 — 예전엔 목록에서 넘긴 location.state 라 새로고침하면 잃었다.
+    const sessionIngestionId = searchParams.get("ingestionId") ?? undefined
+    const detailQuery = useInspectionsByIngestion(sessionIngestionId)
     const changelogQuery = useRecordChangelog(id)
     const patchMutation = usePatchRecord()
     const confirmMutation = useConfirmRecord()
@@ -95,6 +96,13 @@ export function InspectionDetailPage() {
     const uploadId = useMemo(
         () => rawRecordsQuery.data?.find((item) => item.id === dto?.ingestionRecordId)?.uploadId ?? null,
         [rawRecordsQuery.data, dto]
+    )
+    // 미리보기 방식은 실제 업로드된 파일이 정한다 — 행의 `원본유형` 컬럼과 다를 수 있다
+    // (취합 CSV 한 장에서 나온 행의 원본유형이 PDF 로 적혀 있는 식).
+    const ingestionDetailQuery = useIngestionDetail(ingestionId)
+    const uploadFileName = useMemo(
+        () => ingestionDetailQuery.data?.uploads?.find((item) => item.id === uploadId)?.fileName ?? null,
+        [ingestionDetailQuery.data, uploadId]
     )
 
     const record = useMemo(() => {
@@ -157,11 +165,14 @@ export function InspectionDetailPage() {
         )
     }
 
-    const inboxPath = "/inbox"
+    // 목록에서 달고 온 쿼리를 그대로 되돌려준다 — 세션뿐 아니라 검색어·상태 필터·페이지까지.
+    // ingestionId 만 다시 조립하면 나머지가 버려져 목록이 초기화된 채로 돌아간다.
+    const inboxQuery = searchParams.toString()
+    const inboxPath = inboxQuery === "" ? "/inbox" : "/inbox?" + inboxQuery
     const missingRequired = record.flags.includes("MISSING_REQUIRED")
 
     function invalidateInspection() {
-        queryClient.invalidateQueries({ queryKey: ["inspection", stateInspectionId] })
+        queryClient.invalidateQueries({ queryKey: ["inspection", "list", sessionIngestionId] })
         queryClient.invalidateQueries({ queryKey: ["inspection", "list"] })
         queryClient.invalidateQueries({ queryKey: ["inspection", "changelog", id] })
     }
@@ -255,8 +266,7 @@ export function InspectionDetailPage() {
                         </span>
                     </p>
                     <SourcePreview
-                        sourceType={record.observed.sourceType}
-                        fileName={record.fileName}
+                        fileName={uploadFileName}
                         uploadRowNo={record.uploadRowNo}
                         ingestionId={ingestionId}
                         uploadId={uploadId}

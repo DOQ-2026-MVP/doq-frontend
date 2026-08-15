@@ -1,13 +1,17 @@
-import React, { useMemo, useState } from "react"
-import { useNavigate } from "react-router-dom"
+import React, { useEffect, useMemo } from "react"
+import { useNavigate, useSearchParams } from "react-router-dom"
 import { AlertTriangleIcon, CheckIcon, InboxIcon, Loader2Icon, SearchIcon } from "lucide-react"
 import { toast } from "sonner"
 import {
-    useAllInspectionRecords,
-    useConfirmAllInspections,
-    type MergedInspectionRecord,
+    useInspectionsByIngestion,
+    useConfirmInspection,
+    type InspectionRecordDto,
     type InspectionBulkConfirmResult,
 } from "@/apis/inspection"
+import { Pagination } from "@/components/Pagination"
+import { pageSliceOf, totalPagesOf } from "@/shared/lib/paging"
+import { SessionPicker } from "@/components/SessionPicker"
+import { useSelectedIngestionId } from "@/shared/lib/useSelectedIngestionId"
 import { ExceptionBadge } from "@/components/ExceptionBadge"
 import { RECORD_STATUS_LABEL, StatusBadge } from "@/components/StatusBadge"
 import type { ExceptionFlag, RecordStatus } from "@/shared/model/inspection"
@@ -86,12 +90,16 @@ type InboxRecord = {
     changelog: unknown[]
 }
 
-function normalizeInspectionRows(data: MergedInspectionRecord[] | undefined): InboxRecord[] {
+function normalizeInspectionRows(
+    data: InspectionRecordDto[] | undefined,
+    ingestionId: string,
+    inspectionId: number | undefined
+): InboxRecord[] {
     const list = Array.isArray(data) ? data : []
 
     return list.map((row) => {
         const flags = (Array.isArray(row.flags) ? row.flags : []) as ExceptionFlag[]
-        const toValues = (values: MergedInspectionRecord["current"]) => ({
+        const toValues = (values: InspectionRecordDto["current"]) => ({
             docId: values?.docId ?? "",
             sourceType: String(values?.sourceType ?? "MANUAL").toUpperCase(),
             supplier: values?.supplier ?? "",
@@ -106,8 +114,8 @@ function normalizeInspectionRows(data: MergedInspectionRecord[] | undefined): In
 
         return {
             id: String(row.id),
-            inspectionId: String(row.inspectionId),
-            ingestionId: String(row.ingestionId),
+            inspectionId: String(inspectionId ?? ""),
+            ingestionId,
             rowNo: row.rowNo ?? 1,
             uploadMethod: row.uploadType ? ("FILE" as const) : ("MANUAL" as const),
             uploadRowNo: row.rowNo ?? null,
@@ -123,26 +131,28 @@ function normalizeInspectionRows(data: MergedInspectionRecord[] | undefined): In
 
 export function InboxPage() {
     const navigate = useNavigate()
-    const inspectionListQuery = useAllInspectionRecords()
-    const records = useMemo<InboxRecord[]>(() => normalizeInspectionRows(inspectionListQuery.data), [inspectionListQuery.data])
-    const loadState = inspectionListQuery.isLoading ? "loading" : inspectionListQuery.isError ? "error" : "ready"
-    const reload = () => inspectionListQuery.refetch()
+    // 검수는 등록 세션 단위다 — 대상 세션은 URL 이 들고 있고, 아래 선택기로 바꾼다.
+    const { ingestionId, select, isLoading: sessionsLoading } = useSelectedIngestionId()
+    const inspectionQuery = useInspectionsByIngestion(ingestionId ?? undefined)
+    const inspectionId = inspectionQuery.data?.inspectionId
+    const records = useMemo<InboxRecord[]>(
+        () => normalizeInspectionRows(inspectionQuery.data?.records, ingestionId ?? "", inspectionId),
+        [inspectionQuery.data, ingestionId, inspectionId]
+    )
+    const loadState =
+        sessionsLoading || inspectionQuery.isLoading ? "loading" : inspectionQuery.isError ? "error" : "ready"
+    const reload = () => inspectionQuery.refetch()
 
-    const confirmAllMutation = useConfirmAllInspections()
-    const inspectionIds = useMemo(() => {
-        const ids = new Set<number>()
-        ;(inspectionListQuery.data ?? []).forEach((record) => ids.add(record.inspectionId))
-        return Array.from(ids)
-    }, [inspectionListQuery.data])
+    const confirmMutation = useConfirmInspection()
 
     async function handleConfirmAll() {
-        if (inspectionIds.length === 0) return
+        if (inspectionId === undefined) return
         try {
-            const results: InspectionBulkConfirmResult[] = await confirmAllMutation.mutateAsync(inspectionIds)
-            const confirmed = results.reduce((sum, item) => sum + item.confirmedCount, 0)
-            const blocked = results.reduce((sum, item) => sum + item.blockedCount, 0)
+            const result: InspectionBulkConfirmResult = await confirmMutation.mutateAsync(inspectionId)
             toast.success(
-                confirmed + "건 일괄 승인되었습니다" + (blocked > 0 ? ` (필수값 누락 ${blocked}건은 제외)` : "")
+                result.confirmedCount +
+                    "건 일괄 승인되었습니다" +
+                    (result.blockedCount > 0 ? ` (필수값 누락 ${result.blockedCount}건은 제외)` : "")
             )
         } catch (e) {
             console.error("bulk confirm failed", e)
@@ -150,8 +160,30 @@ export function InboxPage() {
         }
     }
 
-    const [keyword, setKeyword] = useState("")
-    const [statusFilters, setStatusFilters] = useState<RecordStatus[]>([])
+    /**
+     * 검색어·상태 필터·페이지도 URL 에 둔다 — 검수 상세에 다녀와도 보던 화면 그대로 돌아오고,
+     * 새로고침·링크 공유에서도 유지된다.
+     */
+    const [searchParams, setSearchParams] = useSearchParams()
+    const keyword = searchParams.get("q") ?? ""
+    const statusFilters = useMemo(() => {
+        const raw = searchParams.get("status")
+        return raw ? (raw.split(",").filter(Boolean) as RecordStatus[]) : []
+    }, [searchParams])
+    const page = Math.max(1, Number(searchParams.get("page") ?? 1) || 1)
+
+    const patchParams = (changes: Record<string, string | null>) =>
+        setSearchParams((prev) => {
+            const next = new URLSearchParams(prev)
+            Object.entries(changes).forEach(([key, value]) => {
+                if (value === null || value === "") next.delete(key)
+                else next.set(key, value)
+            })
+            return next
+        })
+
+    // 조건이 바뀌면 1페이지로 — 필터를 좁혔는데 빈 페이지에 남아 있으면 안 된다.
+    const setKeyword = (value: string) => patchParams({ q: value, page: null })
 
     /**
      * 검수 대상으로 반영된 순서를 그대로 유지하고(새 항목은 맨 뒤),
@@ -178,8 +210,21 @@ export function InboxPage() {
         })
     }, [numbered, keyword, statusFilters])
 
+    const totalPages = totalPagesOf(filtered.length)
+    const { start, end } = pageSliceOf(page)
+    const paged = useMemo(() => filtered.slice(start, end), [filtered, start, end])
+
+    // 필터 결과가 줄어 현재 페이지가 사라지면 마지막 페이지로 당긴다.
+    useEffect(() => {
+        if (page > totalPages) patchParams({ page: totalPages > 1 ? String(totalPages) : null })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [page, totalPages])
+
     function toggleStatus(status: RecordStatus) {
-        setStatusFilters((prev) => (prev.includes(status) ? prev.filter((item) => item !== status) : [...prev, status]))
+        const next = statusFilters.includes(status)
+            ? statusFilters.filter((item) => item !== status)
+            : [...statusFilters, status]
+        patchParams({ status: next.join(","), page: null })
     }
 
     return (
@@ -188,22 +233,25 @@ export function InboxPage() {
                 <div>
                     <h1 className="text-xl font-semibold text-gray-900">검수 목록</h1>
                     <p className="mt-1 text-sm text-gray-500">
-                        구조화된 검수 대상을 조회합니다. 행을 클릭하면 검수 상세로 이동합니다.
+                        등록 세션 단위로 검수합니다. 행을 클릭하면 검수 상세로 이동합니다.
                     </p>
                 </div>
-                <button
-                    type="button"
-                    onClick={handleConfirmAll}
-                    disabled={inspectionIds.length === 0 || confirmAllMutation.isPending}
-                    className={
-                        "shrink-0 rounded-xl px-4 py-2 text-sm font-semibold " +
-                        (inspectionIds.length === 0 || confirmAllMutation.isPending
-                            ? "cursor-not-allowed border border-gray-200 bg-gray-100 text-gray-400"
-                            : "bg-primary text-white hover:bg-primary-700")
-                    }
-                >
-                    {confirmAllMutation.isPending ? "일괄 승인 중..." : "전체 승인 (남은 신규 건)"}
-                </button>
+                <div className="flex flex-wrap items-center gap-3">
+                    <SessionPicker ingestionId={ingestionId} onSelect={select} />
+                    <button
+                        type="button"
+                        onClick={handleConfirmAll}
+                        disabled={inspectionId === undefined || confirmMutation.isPending}
+                        className={
+                            "shrink-0 rounded-xl px-4 py-2 text-sm font-semibold " +
+                            (inspectionId === undefined || confirmMutation.isPending
+                                ? "cursor-not-allowed border border-gray-200 bg-gray-100 text-gray-400"
+                                : "bg-primary text-white hover:bg-primary-700")
+                        }
+                    >
+                        {confirmMutation.isPending ? "일괄 승인 중..." : "전체 승인 (남은 신규 건)"}
+                    </button>
+                </div>
             </div>
 
             <div className="mt-6 rounded-xl border border-gray-200 bg-white shadow-sm">
@@ -229,7 +277,7 @@ export function InboxPage() {
                     >
                         <button
                             type="button"
-                            onClick={() => setStatusFilters([])}
+                            onClick={() => patchParams({ status: null, page: null })}
                             aria-pressed={statusFilters.length === 0}
                             className={
                                 "rounded-xl px-3 py-1.5 text-xs font-medium transition-colors " +
@@ -303,8 +351,9 @@ export function InboxPage() {
                 )}
 
                 {loadState === "ready" && filtered.length > 0 && (
-                    <div className="overflow-x-auto">
-                        <table className="w-full min-w-295 text-left text-sm">
+                    <>
+                        <div className="overflow-x-auto">
+                            <table className="w-full min-w-295 text-left text-sm">
                             <thead>
                                 <tr className="border-b border-gray-200 bg-surface">
                                     {COLUMNS.map((column, index) => (
@@ -324,13 +373,11 @@ export function InboxPage() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {filtered.map(({ record, displayNo }) => {
+                                {paged.map(({ record, displayNo }) => {
                                     const normalizedChanged =
                                         record.current.normalizedItemName !== record.current.rawItemName
                                     const goToDetail = () =>
-                                        navigate("/inspection/" + record.id, {
-                                            state: { inspectionId: record.inspectionId, ingestionId: record.ingestionId },
-                                        })
+                                        navigate("/inspection/" + record.id + "?" + searchParams.toString())
                                     return (
                                         <tr
                                             key={record.id}
@@ -432,8 +479,14 @@ export function InboxPage() {
                                     )
                                 })}
                             </tbody>
-                        </table>
-                    </div>
+                            </table>
+                        </div>
+                        <Pagination
+                            page={page}
+                            totalCount={filtered.length}
+                            onChange={(next) => patchParams({ page: next > 1 ? String(next) : null })}
+                        />
+                    </>
                 )}
             </div>
         </div>

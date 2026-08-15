@@ -2,27 +2,61 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import * as React from "react"
 import { ApiHelper, type ApiEnvelope, unwrap } from "@/shared/api/api.base"
 import { API_PATH } from "@/shared/api/api.path"
-import type { IngestionDetail, IngestionRecord } from "./types"
+import type { IngestionDetail, IngestionRecord, IngestionSessionSummary } from "./types"
 
 type IngestionState = IngestionDetail
 
-export const postUpload = (file: File) => {
+/** 전체 세션 목록 (최근 것부터). 세션 목록의 출처는 서버다 — 브라우저 저장소가 아니다. */
+export const getSessions = () =>
+    unwrap(ApiHelper.get<ApiEnvelope<IngestionSessionSummary[]>>(API_PATH.INGESTION.SESSIONS()))
+
+export function useIngestionSessions() {
+    return useQuery({
+        queryKey: ["ingestion", "sessions"],
+        queryFn: getSessions,
+    })
+}
+
+/** 구조화 완료된 세션의 ingestionId 목록 — 검수·내보내기가 대상 세션을 고를 때 쓴다. */
+export function useStructuredIngestionIds() {
+    const query = useIngestionSessions()
+    const ids = React.useMemo(
+        () => (query.data ?? []).filter((s) => s.status === "STRUCTURED").map((s) => String(s.ingestionId)),
+        [query.data]
+    )
+    return { ...query, ids }
+}
+
+/** 전송 진행률(0~100) — 서버가 받기까지의 몫이다. 이후 파싱 진행은 현황 스트림이 알려준다. */
+export type UploadProgress = (percent: number) => void
+
+const uploadConfig = (onProgress?: UploadProgress) => ({
+    headers: { "Content-Type": "multipart/form-data" },
+    onUploadProgress: onProgress
+        ? (event: { loaded: number; total?: number }) => {
+              if (!event.total) return
+              onProgress(Math.min(100, Math.round((event.loaded / event.total) * 100)))
+          }
+        : undefined,
+})
+
+export const postUpload = (file: File, onProgress?: UploadProgress) => {
     const form = new FormData()
     form.append("file", file)
     return unwrap(
-        ApiHelper.post<ApiEnvelope<IngestionState>>(API_PATH.INGESTION.UPLOADS(), form, {
-            headers: { "Content-Type": "multipart/form-data" },
-        })
+        ApiHelper.post<ApiEnvelope<IngestionState>>(API_PATH.INGESTION.UPLOADS(), form, uploadConfig(onProgress))
     )
 }
 
-export const postUploadFor = (ingestionId: number | string, file: File) => {
+export const postUploadFor = (ingestionId: number | string, file: File, onProgress?: UploadProgress) => {
     const form = new FormData()
     form.append("file", file)
     return unwrap(
-        ApiHelper.post<ApiEnvelope<IngestionState>>(API_PATH.INGESTION.UPLOADS_FOR(ingestionId), form, {
-            headers: { "Content-Type": "multipart/form-data" },
-        })
+        ApiHelper.post<ApiEnvelope<IngestionState>>(
+            API_PATH.INGESTION.UPLOADS_FOR(ingestionId),
+            form,
+            uploadConfig(onProgress)
+        )
     )
 }
 
@@ -69,7 +103,7 @@ export const deleteRecord = (ingestionId: number | string, recordId: number | st
 // SSE events are consumed by EventSource directly in hook below
 
 export function useIngestionDetail(ingestionId?: number | string) {
-    return (useQuery as any)({
+    return useQuery({
         queryKey: ["ingestion", ingestionId],
         queryFn: () => getIngestionDetail(ingestionId as string),
         enabled: !!ingestionId,
@@ -135,25 +169,39 @@ export function useDeleteRecord() {
     })
 }
 
-export function useIngestionEvents(ingestionId?: number | string, onMessage?: (ev: MessageEvent) => void) {
-    // lightweight SSE hook: returns an EventSource instance or null
-    const [es, setEs] = React.useState<EventSource | null>(null)
+/**
+ * 세션 현황 실시간 구독 (SSE).
+ *
+ * 서버는 `event: state` 로 **이름 붙은** 이벤트를 보낸다 — 기본 `message` 리스너로는 잡히지 않는다.
+ * 매 이벤트에 그 시점 현황 전체가 실려 오므로 받은 것을 그대로 캐시에 넣는다(되물어볼 필요가 없다).
+ */
+export function useIngestionEvents(ingestionId?: number | string) {
+    const qc = useQueryClient()
+
     React.useEffect(() => {
         if (!ingestionId) return
         const base = `${import.meta.env.VITE_API_BASE_URL}`
-        const url = base + API_PATH.INGESTION.INGESTION_EVENTS(ingestionId)
-        const s = new EventSource(url)
-        const handler = (ev: MessageEvent) => onMessage?.(ev)
-        s.addEventListener("message", handler)
-        setEs(s)
-        return () => {
-            s.removeEventListener("message", handler)
-            s.close()
-            setEs(null)
+        const source = new EventSource(base + API_PATH.INGESTION.INGESTION_EVENTS(ingestionId))
+
+        const handler = (event: MessageEvent) => {
+            try {
+                const payload = JSON.parse(event.data) as { state?: IngestionState }
+                if (payload.state) qc.setQueryData(["ingestion", ingestionId], payload.state)
+            } catch {
+                // 형식이 바뀌었더라도 다시 읽어오면 화면은 맞는다.
+                qc.invalidateQueries({ queryKey: ["ingestion", ingestionId] })
+            }
+            // 행 수·세션 상태가 바뀌었을 수 있다 — 목록과 원본 행은 따로 다시 읽는다.
+            qc.invalidateQueries({ queryKey: ["ingestion", "sessions"] })
+            qc.invalidateQueries({ queryKey: ["ingestion", ingestionId, "records"] })
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [ingestionId])
-    return es
+
+        source.addEventListener("state", handler)
+        return () => {
+            source.removeEventListener("state", handler)
+            source.close()
+        }
+    }, [ingestionId, qc])
 }
 
 export function useGetRecordsFor(ingestionId?: number | string) {
@@ -189,6 +237,9 @@ export function useDeleteRecordsAll() {
 }
 
 export default {
+    getSessions,
+    useIngestionSessions,
+    useStructuredIngestionIds,
     postUpload,
     postUploadFor,
     getUploadContent,

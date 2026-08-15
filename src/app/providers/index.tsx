@@ -1,7 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools"
 import { RouterProvider } from "react-router"
-import { InspectionProvider } from "@/shared/context/InspectionContext"
 import { Toaster } from "sonner"
 
 type Props = {
@@ -17,11 +16,9 @@ type Props = {
 export const Providers = ({ router, client }: Props) => {
     return (
         <QueryClientProvider client={client}>
-            <InspectionProvider>
-                <RouterProvider router={router} />
+            <RouterProvider router={router} />
 
-                {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} />}
-            </InspectionProvider>
+            {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} />}
 
             <Toaster position="bottom-right" />
         </QueryClientProvider>

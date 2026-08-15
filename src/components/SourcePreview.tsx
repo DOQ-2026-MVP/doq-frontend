@@ -1,17 +1,39 @@
 import { useEffect, useState } from "react"
 import { AlertCircleIcon, FileTextIcon, ImageIcon, Loader2Icon, MaximizeIcon, XIcon } from "lucide-react"
 import { getUploadContent } from "@/apis/ingestion"
-import type { SourceType } from "@/shared/model/inspection"
+
+/** 확장자로 정한 미리보기 방식. 서버가 준 content-type 이 뭉뚱그려져 있어도(octet-stream) 이걸로 판단한다. */
+type PreviewKind = "PDF" | "IMAGE" | "TABLE"
+
+const MIME_BY_EXTENSION: Record<string, string> = {
+    pdf: "application/pdf",
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+}
+
+function extensionOf(fileName: string | null): string {
+    if (!fileName) return ""
+    const parts = fileName.toLowerCase().split(".")
+    return parts.length > 1 ? parts[parts.length - 1] : ""
+}
+
+function previewKindOf(fileName: string | null): PreviewKind {
+    const extension = extensionOf(fileName)
+    if (extension === "pdf") return "PDF"
+    if (extension === "png" || extension === "jpg" || extension === "jpeg") return "IMAGE"
+    return "TABLE"
+}
 
 interface SourcePreviewProps {
-    sourceType: SourceType
+    /** 실제 업로드된 원본 파일명 — 미리보기 방식은 행의 `원본유형` 이 아니라 이 파일이 정한다. */
     fileName: string | null
     uploadRowNo: number | null
     ingestionId?: number | string
     uploadId?: number | null
 }
 
-export function SourcePreview({ sourceType, fileName, uploadRowNo, ingestionId, uploadId }: SourcePreviewProps) {
+export function SourcePreview({ fileName, uploadRowNo, ingestionId, uploadId }: SourcePreviewProps) {
     const [open, setOpen] = useState(false)
     const [objectUrl, setObjectUrl] = useState<string | null>(null)
     const [loadState, setLoadState] = useState<"idle" | "loading" | "ready" | "error">("idle")
@@ -33,7 +55,10 @@ export function SourcePreview({ sourceType, fileName, uploadRowNo, ingestionId, 
         getUploadContent(ingestionId, uploadId)
             .then((blob) => {
                 if (cancelled) return
-                setObjectUrl(URL.createObjectURL(blob))
+                // 서버가 octet-stream 으로 주면 iframe 이 렌더링 대신 다운로드로 떨어진다 — 확장자로 다시 붙인다.
+                const mime = MIME_BY_EXTENSION[extensionOf(fileName)]
+                const typed = mime && blob.type !== mime ? blob.slice(0, blob.size, mime) : blob
+                setObjectUrl(URL.createObjectURL(typed))
                 setLoadState("ready")
             })
             .catch(() => {
@@ -42,7 +67,7 @@ export function SourcePreview({ sourceType, fileName, uploadRowNo, ingestionId, 
         return () => {
             cancelled = true
         }
-    }, [open, objectUrl, ingestionId, uploadId])
+    }, [open, objectUrl, ingestionId, uploadId, fileName])
 
     useEffect(() => {
         return () => {
@@ -50,12 +75,13 @@ export function SourcePreview({ sourceType, fileName, uploadRowNo, ingestionId, 
         }
     }, [objectUrl])
 
-    if (sourceType !== "PDF" && sourceType !== "IMAGE") return null
+    if (!fileName) return null
 
-    const isPdf = sourceType === "PDF"
-    const Icon = isPdf ? FileTextIcon : ImageIcon
-    const viewerLabel = isPdf ? "PDF 원본 보기" : "이미지 원본 보기"
-    const thumbLabel = isPdf ? "첫 페이지 미리보기" : "이미지 썸네일"
+    const kind = previewKindOf(fileName)
+    const isPdf = kind === "PDF"
+    const Icon = kind === "IMAGE" ? ImageIcon : FileTextIcon
+    const viewerLabel = kind === "PDF" ? "PDF 원본 보기" : kind === "IMAGE" ? "이미지 원본 보기" : "원본 파일 열기"
+    const thumbLabel = kind === "PDF" ? "첫 페이지 미리보기" : kind === "IMAGE" ? "이미지 썸네일" : "취합 파일"
     const canFetch = !!ingestionId && !!uploadId
 
     return (
@@ -136,6 +162,18 @@ export function SourcePreview({ sourceType, fileName, uploadRowNo, ingestionId, 
                                 <>
                                     <AlertCircleIcon className="h-8 w-8 text-red-400" aria-hidden="true" />
                                     <p className="text-xs">원본을 불러오지 못했습니다.</p>
+                                </>
+                            ) : kind === "TABLE" ? (
+                                <>
+                                    <FileTextIcon className="h-10 w-10" aria-hidden="true" />
+                                    <p className="text-xs">표 파일은 화면에서 미리 볼 수 없습니다.</p>
+                                    <a
+                                        href={objectUrl ?? undefined}
+                                        download={fileName ?? undefined}
+                                        className="text-xs font-medium text-primary hover:underline"
+                                    >
+                                        원본 내려받기
+                                    </a>
                                 </>
                             ) : isPdf ? (
                                 <iframe title={viewerLabel} src={objectUrl ?? undefined} className="h-full w-full" />

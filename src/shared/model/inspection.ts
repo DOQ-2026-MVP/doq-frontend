@@ -2,7 +2,8 @@ export type SourceType = "XLSX" | "CSV" | "PDF" | "IMAGE" | "MANUAL"
 
 export type UploadMethod = "FILE" | "MANUAL"
 
-export type IngestionStatus = "DRAFT" | "STRUCTURING" | "STRUCTURED"
+/** STRUCTURING 은 화면 전용 과도 상태다 — 서버 상태는 DRAFT · STRUCTURED · FAILED 세 가지. */
+export type IngestionStatus = "DRAFT" | "STRUCTURING" | "STRUCTURED" | "FAILED"
 
 export type RecordStatus = "NEW" | "NEEDS_CHECK" | "NEEDS_HOLD" | "APPROVABLE" | "APPROVED" | "REJECTED"
 
@@ -28,26 +29,6 @@ export interface RawRecord {
 export type RawRecordInput = Omit<RawRecord, "id" | "rowNo">
 
 export type ResizeStatus = "NONE" | "PROCESSING" | "DONE"
-
-export interface IngestionEntry {
-    entryId: string
-    kind: UploadMethod
-    label: string
-    createdAt: string
-    resizeStatus: ResizeStatus
-    rows: RawRecordInput[]
-}
-
-export interface IngestionSession {
-    ingestionId: string
-    status: IngestionStatus
-    createdAt: string
-    entries: IngestionEntry[]
-    records: RawRecord[]
-    inspectionId: string | null
-    // true for client-only sessions not (yet) persisted on server
-    isLocal?: boolean
-}
 
 export interface InspectionValues {
     docId: string
