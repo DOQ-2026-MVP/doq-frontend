@@ -5,6 +5,7 @@ import { toast } from "sonner"
 import {
     useInspectionsByIngestion,
     useConfirmInspection,
+    useConfirmRecord,
     type InspectionRecordDto,
     type InspectionBulkConfirmResult,
 } from "@/apis/inspection"
@@ -20,6 +21,9 @@ import { formatText, formatPrice } from "@/shared/utils/format"
 import { UPLOAD_METHOD_LABEL } from "@/shared/utils/labels"
 
 const FILTERS: RecordStatus[] = ["NEW", "NEEDS_CHECK", "NEEDS_HOLD", "APPROVABLE", "APPROVED", "REJECTED"]
+
+/** 아직 확정 전(NEW 계열)인 상태만 선택 승인 대상이다 — 확인 필요(필수값 누락)는 승인 자체가 막혀 있고, 승인/반려는 이미 결론이 났다. */
+const SELECTABLE_STATUSES: RecordStatus[] = ["NEW", "NEEDS_HOLD", "APPROVABLE"]
 
 interface Column {
     key: string
@@ -144,6 +148,7 @@ export function InboxPage() {
     const reload = () => inspectionQuery.refetch()
 
     const confirmMutation = useConfirmInspection()
+    const confirmRecordMutation = useConfirmRecord()
 
     async function handleConfirmAll() {
         if (inspectionId === undefined) return
@@ -158,6 +163,37 @@ export function InboxPage() {
             console.error("bulk confirm failed", e)
             toast.error("일괄 승인에 실패했습니다.")
         }
+    }
+
+    // 체크박스로 고른 건만 승인한다 — "전체 승인"은 세션 전체를 대상으로 하므로,
+    // 일부만 먼저 내보내고 싶을 때는 이쪽을 쓴다.
+    const [selected, setSelected] = useState<Set<string>>(new Set())
+
+    useEffect(() => {
+        setSelected(new Set())
+    }, [ingestionId])
+
+    function toggleSelected(id: string) {
+        setSelected((prev) => {
+            const next = new Set(prev)
+            if (next.has(id)) next.delete(id)
+            else next.add(id)
+            return next
+        })
+    }
+
+    async function handleConfirmSelected() {
+        const ids = [...selected]
+        if (ids.length === 0) return
+        const results = await Promise.allSettled(
+            ids.map((recordId) => confirmRecordMutation.mutateAsync({ recordId }))
+        )
+        const succeeded = results.filter((result) => result.status === "fulfilled").length
+        const failed = results.length - succeeded
+        setSelected(new Set())
+        if (failed === 0) toast.success(succeeded + "건이 승인되었습니다")
+        else if (succeeded === 0) toast.error("선택 항목 승인에 실패했습니다.")
+        else toast.success(succeeded + "건 승인되었습니다 (" + failed + "건 실패)")
     }
 
     /**
@@ -253,6 +289,23 @@ export function InboxPage() {
     const { start, end } = pageSliceOf(page)
     const paged = useMemo(() => filtered.slice(start, end), [filtered, start, end])
 
+    // 헤더 체크박스는 "이 페이지에서 고를 수 있는 행"만 기준으로 켜고 끈다 — 다른 페이지의 선택은 건드리지 않는다.
+    const selectableOnPage = useMemo(
+        () => paged.filter(({ record }) => SELECTABLE_STATUSES.includes(record.status)),
+        [paged]
+    )
+    const allOnPageSelected =
+        selectableOnPage.length > 0 && selectableOnPage.every(({ record }) => selected.has(record.id))
+
+    function toggleSelectAllOnPage() {
+        setSelected((prev) => {
+            const next = new Set(prev)
+            if (allOnPageSelected) selectableOnPage.forEach(({ record }) => next.delete(record.id))
+            else selectableOnPage.forEach(({ record }) => next.add(record.id))
+            return next
+        })
+    }
+
     // 필터 결과가 줄어 현재 페이지가 사라지면 마지막 페이지로 당긴다.
     useEffect(() => {
         if (page > totalPages) patchParams({ page: totalPages > 1 ? String(totalPages) : null }, { replace: true })
@@ -277,6 +330,23 @@ export function InboxPage() {
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
                     <SessionPicker ingestionId={ingestionId} onSelect={select} />
+                    {selected.size > 0 && (
+                        <button
+                            type="button"
+                            onClick={() => void handleConfirmSelected()}
+                            disabled={confirmRecordMutation.isPending}
+                            className={
+                                "shrink-0 rounded-xl border px-4 py-2 text-sm font-semibold " +
+                                (confirmRecordMutation.isPending
+                                    ? "cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400"
+                                    : "border-primary bg-white text-primary hover:bg-primary-50")
+                            }
+                        >
+                            {confirmRecordMutation.isPending
+                                ? "선택 승인 중..."
+                                : "선택 승인 (" + selected.size + ")"}
+                        </button>
+                    )}
                     <button
                         type="button"
                         onClick={handleConfirmAll}
@@ -395,6 +465,19 @@ export function InboxPage() {
                             <table className="w-full min-w-295 text-left text-sm">
                                 <thead>
                                     <tr className="border-b border-gray-200 bg-surface">
+                                        <th
+                                            scope="col"
+                                            className="sticky left-0 z-20 w-11 border-r border-gray-200 bg-surface px-3 py-3"
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                aria-label="이 페이지에서 승인 가능한 항목 전체 선택"
+                                                checked={allOnPageSelected}
+                                                disabled={selectableOnPage.length === 0}
+                                                onChange={toggleSelectAllOnPage}
+                                                className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary-100"
+                                            />
+                                        </th>
                                         {COLUMNS.map((column, index) => (
                                             <th
                                                 key={column.key}
@@ -402,7 +485,7 @@ export function InboxPage() {
                                                 className={
                                                     "whitespace-nowrap px-4 py-3 text-xs font-semibold text-gray-500 " +
                                                     (index === 0
-                                                        ? "sticky left-0 z-20 border-r border-gray-200 bg-surface"
+                                                        ? "sticky left-11 z-20 border-r border-gray-200 bg-surface"
                                                         : "")
                                                 }
                                             >
@@ -434,7 +517,23 @@ export function InboxPage() {
                                                 }}
                                                 className="group cursor-pointer border-b border-gray-100 last:border-b-0 hover:bg-primary-50/60 focus:bg-primary-50 focus:outline-none"
                                             >
-                                                <td className="sticky left-0 z-10 whitespace-nowrap border-r border-gray-100 bg-white px-4 py-3 group-hover:bg-primary-50 group-focus:bg-primary-50">
+                                                <td
+                                                    className="sticky left-0 z-10 w-11 border-r border-gray-100 bg-white px-3 py-3 group-hover:bg-primary-50 group-focus:bg-primary-50"
+                                                    onClick={(event) => event.stopPropagation()}
+                                                >
+                                                    {SELECTABLE_STATUSES.includes(record.status) ? (
+                                                        <input
+                                                            type="checkbox"
+                                                            aria-label={record.current.docId + " 선택"}
+                                                            checked={selected.has(record.id)}
+                                                            onChange={() => toggleSelected(record.id)}
+                                                            className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary-100"
+                                                        />
+                                                    ) : (
+                                                        <span className="block h-4 w-4" aria-hidden="true" />
+                                                    )}
+                                                </td>
+                                                <td className="sticky left-11 z-10 whitespace-nowrap border-r border-gray-100 bg-white px-4 py-3 group-hover:bg-primary-50 group-focus:bg-primary-50">
                                                     <div className="flex max-w-60 items-baseline gap-2">
                                                         <span className="shrink-0 text-xs text-gray-400">
                                                             {String(displayNo).padStart(2, "0")}
