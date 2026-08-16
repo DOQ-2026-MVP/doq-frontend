@@ -5,7 +5,12 @@ export type UploadMethod = "FILE" | "MANUAL"
 /** STRUCTURING 은 화면 전용 과도 상태다 — 서버 상태는 DRAFT · STRUCTURED · FAILED 세 가지. */
 export type IngestionStatus = "DRAFT" | "STRUCTURING" | "STRUCTURED" | "FAILED"
 
-export type RecordStatus = "NEW" | "NEEDS_CHECK" | "NEEDS_HOLD" | "APPROVABLE" | "APPROVED" | "REJECTED"
+/**
+ * 화면용 검수 상태. 서버가 들고 있는 NEW/CONFIRMED/REJECTED 를 예외 플래그로 세분화한 값이라
+ * 확정 전 상태는 예외 유무에 따라 확인 필요 · 보류 필요 · 승인 가능 셋 중 하나로 갈린다
+ * (`deriveDisplayStatus`). "예외는 있는데 아직 분류 안 된" 상태는 없다.
+ */
+export type RecordStatus = "NEEDS_CHECK" | "NEEDS_HOLD" | "APPROVABLE" | "APPROVED" | "REJECTED"
 
 export type ExceptionFlag = "MISSING_REQUIRED" | "DUPLICATE_SUSPECTED" | "SPEC_MISMATCH" | "UNIT_MISMATCH"
 

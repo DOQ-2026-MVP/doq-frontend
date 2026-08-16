@@ -2,13 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { AlertTriangleIcon, CheckIcon, InboxIcon, Loader2Icon, SearchIcon } from "lucide-react"
 import { toast } from "sonner"
-import {
-    useInspectionsByIngestion,
-    useConfirmInspection,
-    useConfirmRecord,
-    type InspectionRecordDto,
-    type InspectionBulkConfirmResult,
-} from "@/apis/inspection"
+import { useInspectionsByIngestion, useConfirmRecord, type InspectionRecordDto } from "@/apis/inspection"
 import { Pagination } from "@/components/Pagination"
 import { pageSliceOf, totalPagesOf } from "@/shared/lib/paging"
 import { SessionPicker } from "@/components/SessionPicker"
@@ -20,10 +14,16 @@ import { deriveDisplayStatus } from "@/shared/utils/structuring"
 import { formatText, formatPrice } from "@/shared/utils/format"
 import { UPLOAD_METHOD_LABEL } from "@/shared/utils/labels"
 
-const FILTERS: RecordStatus[] = ["NEW", "NEEDS_CHECK", "NEEDS_HOLD", "APPROVABLE", "APPROVED", "REJECTED"]
+const FILTERS: RecordStatus[] = ["NEEDS_CHECK", "NEEDS_HOLD", "APPROVABLE", "APPROVED", "REJECTED"]
 
-/** 아직 확정 전(NEW 계열)인 상태만 선택 승인 대상이다 — 확인 필요(필수값 누락)는 승인 자체가 막혀 있고, 승인/반려는 이미 결론이 났다. */
-const SELECTABLE_STATUSES: RecordStatus[] = ["NEW", "NEEDS_HOLD", "APPROVABLE"]
+/**
+ * 목록에서 곧바로 승인할 수 있는 건 예외가 하나도 없는 `승인 가능` 뿐이다.
+ *
+ * 확인 필요(필수값 누락)는 보완 전까지 승인 자체가 막혀 있고, 보류 필요 3종(중복·규격·단위)은
+ * 담당자가 상세에서 근거를 확인해 해소하거나 사유를 남기고 수용해야 한다 — 목록 체크박스로
+ * 검토 없이 통과시키면 안 된다. 승인/반려는 이미 결론이 난 건이다.
+ */
+const SELECTABLE_STATUSES: RecordStatus[] = ["APPROVABLE"]
 
 interface Column {
     key: string
@@ -147,25 +147,39 @@ export function InboxPage() {
         sessionsLoading || inspectionQuery.isLoading ? "loading" : inspectionQuery.isError ? "error" : "ready"
     const reload = () => inspectionQuery.refetch()
 
-    const confirmMutation = useConfirmInspection()
     const confirmRecordMutation = useConfirmRecord()
 
-    async function handleConfirmAll() {
-        if (inspectionId === undefined) return
-        try {
-            const result: InspectionBulkConfirmResult = await confirmMutation.mutateAsync(inspectionId)
-            toast.success(
-                result.confirmedCount +
-                    "건 일괄 승인되었습니다" +
-                    (result.blockedCount > 0 ? ` (필수값 누락 ${result.blockedCount}건은 제외)` : "")
-            )
-        } catch (e) {
-            console.error("bulk confirm failed", e)
-            toast.error("일괄 승인에 실패했습니다.")
-        }
+    /**
+     * 세션 전체에서 예외 없는 항목만 모은다 — 목록의 일괄 승인 대상.
+     *
+     * 서버의 검수 단위 일괄 확정(POST /inspection/{id}/confirm)은 필수값 누락만 걸러내고
+     * 보류 필요까지 통과시켜서 쓰지 않는다. 예외 건은 상세에서 한 건씩 판단해야 한다.
+     */
+    const approvable = useMemo(() => records.filter((record) => record.status === "APPROVABLE"), [records])
+
+    async function confirmMany(ids: string[]) {
+        const results = await Promise.allSettled(
+            ids.map((recordId) => confirmRecordMutation.mutateAsync({ recordId }))
+        )
+        const succeeded = results.filter((result) => result.status === "fulfilled").length
+        return { succeeded, failed: results.length - succeeded }
     }
 
-    // 체크박스로 고른 건만 승인한다 — "전체 승인"은 세션 전체를 대상으로 하므로,
+    function reportConfirmResult(succeeded: number, failed: number) {
+        if (failed === 0) toast.success(succeeded + "건이 승인되었습니다")
+        else if (succeeded === 0) toast.error("승인에 실패했습니다.")
+        else toast.success(succeeded + "건 승인되었습니다 (" + failed + "건 실패)")
+    }
+
+    async function handleConfirmAll() {
+        const ids = approvable.map((record) => record.id)
+        if (ids.length === 0) return
+        const { succeeded, failed } = await confirmMany(ids)
+        setSelected(new Set())
+        reportConfirmResult(succeeded, failed)
+    }
+
+    // 체크박스로 고른 건만 승인한다 — "전체 승인"은 세션의 승인 가능 항목 전부를 대상으로 하므로,
     // 일부만 먼저 내보내고 싶을 때는 이쪽을 쓴다.
     const [selected, setSelected] = useState<Set<string>>(new Set())
 
@@ -185,15 +199,9 @@ export function InboxPage() {
     async function handleConfirmSelected() {
         const ids = [...selected]
         if (ids.length === 0) return
-        const results = await Promise.allSettled(
-            ids.map((recordId) => confirmRecordMutation.mutateAsync({ recordId }))
-        )
-        const succeeded = results.filter((result) => result.status === "fulfilled").length
-        const failed = results.length - succeeded
+        const { succeeded, failed } = await confirmMany(ids)
         setSelected(new Set())
-        if (failed === 0) toast.success(succeeded + "건이 승인되었습니다")
-        else if (succeeded === 0) toast.error("선택 항목 승인에 실패했습니다.")
-        else toast.success(succeeded + "건 승인되었습니다 (" + failed + "건 실패)")
+        reportConfirmResult(succeeded, failed)
     }
 
     /**
@@ -349,16 +357,19 @@ export function InboxPage() {
                     )}
                     <button
                         type="button"
-                        onClick={handleConfirmAll}
-                        disabled={inspectionId === undefined || confirmMutation.isPending}
+                        onClick={() => void handleConfirmAll()}
+                        disabled={approvable.length === 0 || confirmRecordMutation.isPending}
+                        title="예외가 없는 승인 가능 항목만 승인합니다. 확인 필요·보류 필요 항목은 검수 상세에서 처리해 주세요."
                         className={
                             "shrink-0 rounded-xl px-4 py-2 text-sm font-semibold " +
-                            (inspectionId === undefined || confirmMutation.isPending
+                            (approvable.length === 0 || confirmRecordMutation.isPending
                                 ? "cursor-not-allowed border border-gray-200 bg-gray-100 text-gray-400"
                                 : "bg-primary text-white hover:bg-primary-700")
                         }
                     >
-                        {confirmMutation.isPending ? "일괄 승인 중..." : "전체 승인"}
+                        {confirmRecordMutation.isPending
+                            ? "승인 중..."
+                            : "승인 가능 전체 승인 (" + approvable.length + ")"}
                     </button>
                 </div>
             </div>

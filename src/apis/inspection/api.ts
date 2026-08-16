@@ -18,7 +18,13 @@ export const fetchExportJson = (inspectionId: number | string) =>
 export const fetchExportCsvBlob = (inspectionId: number | string) =>
     ApiHelper.get<Blob>(API_PATH.INSPECTION.EXPORT_CSV(inspectionId), { responseType: "blob" as const })
 
-/** 검수(inspectionId) 1개의 남은 NEW 레코드를 일괄 확정한다 (필수값 누락은 건너뜀). */
+/**
+ * 검수(inspectionId) 1개의 남은 NEW 레코드를 일괄 확정한다 (필수값 누락은 건너뜀).
+ *
+ * ⚠️ 검수 목록에서는 쓰지 않는다 — 필수값 누락만 거르고 보류 필요(중복·규격·단위)까지
+ * 검토 없이 승인해 버려서, "예외 상태를 아무 검토 없이 승인하지 않는다"는 규칙에 어긋난다.
+ * 목록의 일괄 승인은 예외 없는 항목만 골라 레코드 단위 확정(postConfirmRecord)으로 처리한다.
+ */
 export const postConfirmInspection = (inspectionId: number | string) =>
     unwrap(ApiHelper.post<ApiEnvelope<InspectionBulkConfirmResult>>(API_PATH.INSPECTION.CONFIRM(inspectionId)))
 

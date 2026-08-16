@@ -200,11 +200,11 @@ export function InspectionDetailPage() {
      * 아래 바에 어떤 버튼을 낼지는 백엔드 상태가 정한다.
      *
      * 신규는 아직 확정 전이라 저장·반려·승인이 모두 열려 있고, 승인/반려로 확정된 뒤에는
-     * 재검토(= 신규로 되돌리기)만 남는다. 다만 예외가 붙어 있는 행은 확정된 뒤에도
-     * 값을 고쳐 저장할 수 있어야 하므로 저장 버튼을 같이 낸다.
+     * 재검토(= 신규로 되돌리기)만 남는다. 확정된 값은 그대로 내보내기로 나가므로 입력창을
+     * 열어두지 않는다 — 고치려면 재검토로 신규 상태로 되돌린 뒤에 고친다.
      */
     const isNew = record.backendStatus === "NEW"
-    const canSave = isNew || record.flags.length > 0
+    const canEdit = isNew
     const canReview = !isNew
 
     function invalidateInspection() {
@@ -343,10 +343,16 @@ export function InspectionDetailPage() {
                 <section className="rounded-xl border border-gray-200 bg-white shadow-sm">
                     <div className="flex items-center justify-between border-b border-gray-200 px-5 py-3.5">
                         <h2 className="text-sm font-semibold text-gray-900">현재 검수값</h2>
-                        {isDirty && (
-                            <span className="rounded-md bg-orange-50 px-2 py-0.5 text-xs font-medium text-orange-700">
-                                저장 전 변경사항
+                        {!canEdit ? (
+                            <span className="rounded-md bg-gray-100 px-2 py-0.5 text-xs text-gray-500">
+                                {record.backendStatus === "REJECTED" ? "반려됨 · 읽기 전용" : "승인됨 · 읽기 전용"}
                             </span>
+                        ) : (
+                            isDirty && (
+                                <span className="rounded-md bg-orange-50 px-2 py-0.5 text-xs font-medium text-orange-700">
+                                    저장 전 변경사항
+                                </span>
+                            )
                         )}
                     </div>
 
@@ -356,24 +362,38 @@ export function InspectionDetailPage() {
                             <label className="text-xs font-medium text-gray-600" htmlFor="current-memo">
                                 검수 메모
                             </label>
-                            <span className="text-xs text-gray-400">저장 시 함께 반영</span>
+                            {canEdit && <span className="text-xs text-gray-400">저장 시 함께 반영</span>}
                         </div>
                         <div className="mt-2 overflow-hidden rounded-xl border border-gray-200">
-                            <textarea
-                                id="current-memo"
-                                value={memo}
-                                onChange={(event) => setMemo(event.target.value)}
-                                placeholder="검수 메모를 입력하세요."
-                                className={
-                                    PREVIEW_BODY_HEIGHT +
-                                    " block w-full resize-none border-0 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-0"
-                                }
-                            />
+                            {canEdit ? (
+                                <textarea
+                                    id="current-memo"
+                                    value={memo}
+                                    onChange={(event) => setMemo(event.target.value)}
+                                    placeholder="검수 메모를 입력하세요."
+                                    className={
+                                        PREVIEW_BODY_HEIGHT +
+                                        " block w-full resize-none border-0 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-0"
+                                    }
+                                />
+                            ) : (
+                                /* 확정된 뒤에도 승인 사유(메모)는 그대로 보인다 — 예외를 수용해 승인한 근거라 지우면 안 된다. */
+                                <p
+                                    id="current-memo"
+                                    className={
+                                        PREVIEW_BODY_HEIGHT +
+                                        " block w-full overflow-y-auto whitespace-pre-wrap bg-gray-50 px-3 py-2 text-sm " +
+                                        (memo.trim() === "" ? "text-gray-400" : "text-gray-900")
+                                    }
+                                >
+                                    {memo.trim() === "" ? "검수 메모 없음" : memo}
+                                </p>
+                            )}
                             <div className="flex items-center justify-between gap-3 border-t border-gray-200 bg-white px-3 py-2">
                                 <span className="text-xs text-gray-500">
                                     {memo.trim() === "" ? "메모 없음" : memo.length + "자"}
                                 </span>
-                                {record.memo !== memo && (
+                                {canEdit && record.memo !== memo && (
                                     <span className="text-xs font-medium text-orange-700">저장 전 변경사항</span>
                                 )}
                             </div>
@@ -382,6 +402,22 @@ export function InspectionDetailPage() {
 
                     <div className="divide-y divide-gray-100 px-5">
                         {FIELD_ORDER.map((field) => {
+                            // 확정된 행은 왼쪽 관찰값 카드와 같은 모양으로 값만 보여준다.
+                            if (!canEdit) {
+                                return (
+                                    <div key={field} className={ROW_CLASS}>
+                                        <span className={ROW_LABEL_CLASS}>{FIELD_LABEL[field]}</span>
+                                        <p className={"col-span-2 truncate " + READONLY_CLASS}>
+                                            {field === "sourceType"
+                                                ? sourceTypeLabel(record.current.sourceType)
+                                                : PRICE_FIELDS.includes(field)
+                                                  ? formatPrice(record.current[field])
+                                                  : formatText(record.current[field])}
+                                        </p>
+                                    </div>
+                                )
+                            }
+
                             const reason = fieldErrors[field]
                             const errorId = "current-" + field + "-error"
                             const tone = FIELD_CLASS + (reason ? FIELD_TONE_ERROR : FIELD_TONE)
@@ -540,7 +576,12 @@ export function InspectionDetailPage() {
                 )}
             </section>
 
-            <div className="fixed bottom-0 left-0 right-0 z-10 border-t border-gray-200 bg-white/95 px-4 py-3 backdrop-blur md:px-8">
+            {/*
+             * 왼쪽 여백을 사이드바(md:w-56) 만큼 띄우고 본문과 같은 px·max-w 를 쓴다 —
+             * left-0 으로 화면 전체를 덮으면 안쪽 max-w-7xl 이 사이드바까지 포함해 가운데로 몰려서,
+             * 버튼 줄이 본문 오른쪽 끝보다 100px 남짓 왼쪽에 선다.
+             */}
+            <div className="fixed bottom-0 left-0 right-0 z-10 border-t border-gray-200 bg-white/95 px-4 py-3 backdrop-blur md:left-56 md:px-8">
                 <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-end gap-2">
                     {saveError !== "" ? (
                         <p className="mr-auto whitespace-pre-line text-xs text-red-600" role="alert">
@@ -554,7 +595,7 @@ export function InspectionDetailPage() {
                             </p>
                         )
                     )}
-                    {canSave && (
+                    {canEdit && (
                         <button
                             type="button"
                             onClick={handleSave}
