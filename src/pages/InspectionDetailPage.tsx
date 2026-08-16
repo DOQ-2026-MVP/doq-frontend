@@ -22,13 +22,7 @@ import { parseApiError } from "@/shared/api/api.base"
 import type { ExceptionFlag, InspectionValues, SourceType } from "@/shared/model/inspection"
 import { deriveDisplayStatus } from "@/shared/utils/structuring"
 import { formatPrice, formatText, formatDateTime } from "@/shared/utils/format"
-import {
-    FIELD_LABEL,
-    SOURCE_TYPES,
-    SOURCE_TYPE_LABEL,
-    isKnownSourceType,
-    sourceTypeLabel,
-} from "@/shared/utils/labels"
+import { FIELD_LABEL, SOURCE_TYPES, SOURCE_TYPE_LABEL, isKnownSourceType, sourceTypeLabel } from "@/shared/utils/labels"
 
 const FIELD_ORDER: (keyof InspectionValues)[] = [
     "docId",
@@ -107,10 +101,7 @@ export function InspectionDetailPage() {
     const rejectMutation = useRejectRecord()
     const resetMutation = useResetRecord()
 
-    const dto = useMemo(
-        () => detailQuery.data?.records.find((item) => String(item.id) === id),
-        [detailQuery.data, id]
-    )
+    const dto = useMemo(() => detailQuery.data?.records.find((item) => String(item.id) === id), [detailQuery.data, id])
     const ingestionId = detailQuery.data?.ingestionId
     const inspectionId = detailQuery.data?.inspectionId
 
@@ -296,7 +287,7 @@ export function InspectionDetailPage() {
             <button
                 type="button"
                 onClick={() => requestAction("BACK")}
-                className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900"
+                className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 cursor-pointer"
             >
                 <ArrowLeftIcon className="h-4 w-4" aria-hidden="true" />
                 검수 목록
@@ -507,23 +498,33 @@ export function InspectionDetailPage() {
                                                     {index === 0 ? (CHANGE_TYPE_LABEL[entry.type] ?? entry.type) : ""}
                                                 </td>
                                                 <td className="whitespace-nowrap px-5 py-2.5 text-gray-700">
-                                                    {FIELD_LABEL[change.field as keyof InspectionValues] ?? change.field}
+                                                    {FIELD_LABEL[change.field as keyof InspectionValues] ??
+                                                        change.field}
                                                 </td>
                                                 <td className="whitespace-nowrap px-5 py-2.5 text-gray-500 line-through">
-                                                    <span title={change.before ?? ""} className="block max-w-55 truncate">
+                                                    <span
+                                                        title={change.before ?? ""}
+                                                        className="block max-w-55 truncate"
+                                                    >
                                                         {formatText(change.before ?? "")}
                                                     </span>
                                                 </td>
                                                 <td className="whitespace-nowrap px-5 py-2.5 font-medium text-gray-900">
-                                                    <span title={change.after ?? ""} className="block max-w-55 truncate">
+                                                    <span
+                                                        title={change.after ?? ""}
+                                                        className="block max-w-55 truncate"
+                                                    >
                                                         {formatText(change.after ?? "")}
                                                     </span>
                                                 </td>
                                                 <td className="whitespace-nowrap px-5 py-2.5 text-gray-700">
                                                     {index === 0
-                                                        ? ((entry.fromStatus && BACKEND_STATUS_LABEL[entry.fromStatus]) ?? "-") +
+                                                        ? ((entry.fromStatus &&
+                                                              BACKEND_STATUS_LABEL[entry.fromStatus]) ??
+                                                              "-") +
                                                           " → " +
-                                                          ((entry.toStatus && BACKEND_STATUS_LABEL[entry.toStatus]) ?? "-")
+                                                          ((entry.toStatus && BACKEND_STATUS_LABEL[entry.toStatus]) ??
+                                                              "-")
                                                         : ""}
                                                 </td>
                                                 <td className="whitespace-nowrap px-5 py-2.5 text-gray-500">
