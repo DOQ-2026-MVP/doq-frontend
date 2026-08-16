@@ -347,6 +347,15 @@ export function IntakePage() {
         toast.success("새 등록 세션을 시작합니다.")
     }
 
+    /** 세션 목록에서 "작성 중" 세션을 다시 불러온다 — 지금 채우던 수기 입력은 다른 세션 것이라 버린다. */
+    function handleResumeSession(id: string) {
+        setActiveId(id)
+        setManual(EMPTY_MANUAL_INPUT)
+        setManualErrors({})
+        setError("")
+        window.setTimeout(() => statusRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 60)
+    }
+
     async function handleStart() {
         if (!activeId || entries.length === 0) return
         setStructuring(true)
@@ -649,8 +658,13 @@ export function IntakePage() {
                                 </tr>
                             ) : (
                                 serverSessions.map((session) => {
-                                    // 구조화가 끝난 세션만 검수 대상이 있다 — 그 세션의 검수 목록으로 바로 보낸다.
-                                    const openable = session.status === "STRUCTURED"
+                                    // 구조화가 끝난 세션은 검수 목록으로, 아직 작성 중인 세션은 등록 화면으로 이어서 불러온다.
+                                    // 실패(FAILED)한 세션은 다시 열어도 할 수 있는 게 없어 그대로 둔다.
+                                    const openable = session.status === "STRUCTURED" || session.status === "DRAFT"
+                                    const onOpen = () =>
+                                        session.status === "STRUCTURED"
+                                            ? navigate("/inbox?ingestionId=" + session.ingestionId)
+                                            : handleResumeSession(String(session.ingestionId))
                                     return (
                                         <tr
                                             key={session.ingestionId}
@@ -658,11 +672,7 @@ export function IntakePage() {
                                                 "border-b border-gray-100 last:border-b-0 " +
                                                 (openable ? "cursor-pointer hover:bg-primary-50/60" : "")
                                             }
-                                            onClick={
-                                                openable
-                                                    ? () => navigate("/inbox?ingestionId=" + session.ingestionId)
-                                                    : undefined
-                                            }
+                                            onClick={openable ? onOpen : undefined}
                                         >
                                             <td className="whitespace-nowrap px-5 py-3 font-medium text-gray-900">
                                                 등록 세션 #{session.ingestionId}
